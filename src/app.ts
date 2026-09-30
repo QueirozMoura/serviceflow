@@ -10,6 +10,8 @@ import type { DiagnosisRepository } from './modules/diagnosis/repository.js';
 import type { QuoteRepository } from './modules/quotes/repository.js';
 import type { PaymentRepository } from './modules/payments/repository.js';
 import type { WarrantyRepository } from './modules/warranties/repository.js';
+import type { DashboardRepository } from './modules/dashboard/repository.js';
+import type { MessageRepository } from './modules/messages/repository.js';
 import { registerSecurityPlugins } from './plugins/security.js';
 import { authRoutes } from './routes/auth.js';
 import { customerRoutes } from './routes/customers.js';
@@ -19,9 +21,11 @@ import { diagnosisRoutes } from './routes/diagnosis.js';
 import { quoteRoutes } from './routes/quotes.js';
 import { paymentRoutes } from './routes/payments.js';
 import { warrantyRoutes } from './routes/warranties.js';
+import { dashboardRoutes } from './routes/dashboard.js';
+import { messageRoutes } from './routes/messages.js';
 import { healthRoutes } from './routes/health.js';
 
-export function buildApp(options: { authRepository?: AuthRepository; customerRepository?: CustomerRepository; equipmentRepository?: EquipmentRepository; serviceOrderRepository?: ServiceOrderRepository; diagnosisRepository?: DiagnosisRepository; quoteRepository?: QuoteRepository; paymentRepository?: PaymentRepository; warrantyRepository?: WarrantyRepository } = {}) {
+export function buildApp(options: { authRepository?: AuthRepository; customerRepository?: CustomerRepository; equipmentRepository?: EquipmentRepository; serviceOrderRepository?: ServiceOrderRepository; diagnosisRepository?: DiagnosisRepository; quoteRepository?: QuoteRepository; paymentRepository?: PaymentRepository; warrantyRepository?: WarrantyRepository; dashboardRepository?: DashboardRepository; messageRepository?: MessageRepository } = {}) {
   const app = Fastify({
     logger: env.NODE_ENV !== 'test',
   });
@@ -79,6 +83,16 @@ export function buildApp(options: { authRepository?: AuthRepository; customerRep
     prefix: '/api/service-orders',
     authRepository,
     warrantyRepository: options.warrantyRepository,
+  });
+  app.register(dashboardRoutes, {
+    prefix: '/api/dashboard',
+    authRepository,
+    dashboardRepository: options.dashboardRepository,
+  });
+  app.register(messageRoutes, {
+    prefix: '/api/service-orders',
+    authRepository,
+    messageRepository: options.messageRepository,
   });
 
   return app;
