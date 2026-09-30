@@ -8,6 +8,9 @@ import { CustomerDetails } from '../pages/customers/CustomerDetails';
 import { EquipmentList } from '../pages/equipment/EquipmentList';
 import { EquipmentForm } from '../pages/equipment/EquipmentForm';
 import { EquipmentDetails } from '../pages/equipment/EquipmentDetails';
+import { ServiceOrderList } from '../pages/service-orders/ServiceOrderList';
+import { ServiceOrderForm } from '../pages/service-orders/ServiceOrderForm';
+import { ServiceOrderDetails } from '../pages/service-orders/ServiceOrderDetails';
 import { ProtectedRoute, PublicRoute } from './ProtectedRoute';
 
 export function AppRoutes() {
@@ -24,6 +27,10 @@ export function AppRoutes() {
         <Route path="/equipment/new" element={<EquipmentForm />} />
         <Route path="/equipment/:id" element={<EquipmentDetails />} />
         <Route path="/equipment/:id/edit" element={<EquipmentForm />} />
+        <Route path="/service-orders" element={<ServiceOrderList />} />
+        <Route path="/service-orders/new" element={<ServiceOrderForm />} />
+        <Route path="/service-orders/:id" element={<ServiceOrderDetails />} />
+        <Route path="/service-orders/:id/edit" element={<ServiceOrderForm />} />
       </Route></Route>
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>

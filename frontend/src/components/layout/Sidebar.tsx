@@ -31,7 +31,7 @@ const groups = [
     items: [
       { label: 'Clientes', icon: Users, to: '/customers' },
       { label: 'Equipamentos', icon: Boxes, to: '/equipment' },
-      { label: 'Ordens de serviço', icon: ClipboardList },
+      { label: 'Ordens de serviço', icon: ClipboardList, to: '/service-orders' },
       { label: 'Orçamentos', icon: FileText },
       { label: 'Pagamentos', icon: BadgeDollarSign },
       { label: 'Garantias', icon: ShieldCheck },

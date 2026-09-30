@@ -5,6 +5,17 @@ const statusLabels: Record<string, string> = {
   COMPLETED: 'Concluída',
   CANCELLED: 'Cancelada',
   OPEN: 'Aberta',
+  RECEIVED: 'Recebida',
+  WAITING_DIAGNOSIS: 'Aguardando diagnóstico',
+  WAITING_APPROVAL: 'Aguardando aprovação',
+  READY: 'Pronta',
+  DELIVERED: 'Entregue',
+  PAID: 'Pago',
+  FAILED: 'Falhou',
+  REFUNDED: 'Reembolsado',
+  REJECTED: 'Rejeitado',
+  EXPIRED: 'Expirado',
+  ACTIVE: 'Ativa',
 };
 
 export function Badge({ value }: { value: string }) {
