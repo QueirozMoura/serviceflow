@@ -7,15 +7,21 @@ import type { CustomerRepository } from './modules/customers/repository.js';
 import type { EquipmentRepository } from './modules/equipment/repository.js';
 import type { ServiceOrderRepository } from './modules/service-orders/repository.js';
 import type { DiagnosisRepository } from './modules/diagnosis/repository.js';
+import type { QuoteRepository } from './modules/quotes/repository.js';
+import type { PaymentRepository } from './modules/payments/repository.js';
+import type { WarrantyRepository } from './modules/warranties/repository.js';
 import { registerSecurityPlugins } from './plugins/security.js';
 import { authRoutes } from './routes/auth.js';
 import { customerRoutes } from './routes/customers.js';
 import { equipmentRoutes } from './routes/equipment.js';
 import { serviceOrderRoutes } from './routes/service-orders.js';
 import { diagnosisRoutes } from './routes/diagnosis.js';
+import { quoteRoutes } from './routes/quotes.js';
+import { paymentRoutes } from './routes/payments.js';
+import { warrantyRoutes } from './routes/warranties.js';
 import { healthRoutes } from './routes/health.js';
 
-export function buildApp(options: { authRepository?: AuthRepository; customerRepository?: CustomerRepository; equipmentRepository?: EquipmentRepository; serviceOrderRepository?: ServiceOrderRepository; diagnosisRepository?: DiagnosisRepository } = {}) {
+export function buildApp(options: { authRepository?: AuthRepository; customerRepository?: CustomerRepository; equipmentRepository?: EquipmentRepository; serviceOrderRepository?: ServiceOrderRepository; diagnosisRepository?: DiagnosisRepository; quoteRepository?: QuoteRepository; paymentRepository?: PaymentRepository; warrantyRepository?: WarrantyRepository } = {}) {
   const app = Fastify({
     logger: env.NODE_ENV !== 'test',
   });
@@ -58,6 +64,21 @@ export function buildApp(options: { authRepository?: AuthRepository; customerRep
     prefix: '/api/service-orders',
     authRepository,
     diagnosisRepository: options.diagnosisRepository,
+  });
+  app.register(quoteRoutes, {
+    prefix: '/api/service-orders',
+    authRepository,
+    quoteRepository: options.quoteRepository,
+  });
+  app.register(paymentRoutes, {
+    prefix: '/api/service-orders',
+    authRepository,
+    paymentRepository: options.paymentRepository,
+  });
+  app.register(warrantyRoutes, {
+    prefix: '/api/service-orders',
+    authRepository,
+    warrantyRepository: options.warrantyRepository,
   });
 
   return app;

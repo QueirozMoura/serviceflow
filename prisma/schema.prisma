@@ -36,6 +36,28 @@ enum ServiceItemType {
   PART
 }
 
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  CANCELLED
+  REFUNDED
+}
+
+enum PaymentMethod {
+  PIX
+  CASH
+  CARD
+  TRANSFER
+  OTHER
+}
+
+enum WarrantyStatus {
+  ACTIVE
+  EXPIRED
+  CANCELLED
+}
+
 model Organization {
   id            String         @id @default(uuid())
   name          String
@@ -46,6 +68,8 @@ model Organization {
   customers     Customer[]
   equipment     Equipment[]
   serviceOrders ServiceOrder[]
+  payments      Payment[]
+  warranties    Warranty[]
 }
 
 model User {
@@ -129,6 +153,8 @@ model ServiceOrder {
   equipment          Equipment                   @relation(fields: [equipmentId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade)
   diagnosis          Diagnosis?
   quote              Quote?
+  payments           Payment[]
+  warranty           Warranty?
   statusHistory      ServiceOrderStatusHistory[]
 
   @@unique([organizationId, orderNumber])
@@ -174,6 +200,46 @@ model ServiceItem {
   @@index([quoteId])
 }
 
+model Payment {
+  id             String        @id @default(uuid())
+  organizationId String
+  serviceOrderId String
+  amount         Decimal       @db.Decimal(12, 2)
+  status         PaymentStatus
+  method         PaymentMethod
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  serviceOrder   ServiceOrder  @relation(fields: [serviceOrderId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([id, organizationId])
+  @@index([organizationId])
+  @@index([organizationId, serviceOrderId])
+  @@index([organizationId, status])
+  @@index([organizationId, createdAt])
+}
+
+model Warranty {
+  id             String         @id @default(uuid())
+  organizationId String
+  serviceOrderId String         @unique
+  startDate      DateTime
+  endDate        DateTime
+  description    String
+  status         WarrantyStatus
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  serviceOrder   ServiceOrder   @relation(fields: [serviceOrderId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([serviceOrderId, organizationId])
+  @@unique([id, organizationId])
+  @@index([organizationId])
+  @@index([organizationId, serviceOrderId])
+  @@index([organizationId, status])
+  @@index([organizationId, endDate])
+}
+
 model ServiceOrderStatusHistory {
   id              String              @id @default(uuid())
   organizationId  String
@@ -191,14 +257,14 @@ model ServiceOrderStatusHistory {
 }
 
 model Session {
-  id             String   @id @default(uuid())
-  tokenHash      String   @unique
+  id             String    @id @default(uuid())
+  tokenHash      String    @unique
   userId         String
   organizationId String
   expiresAt      DateTime
-  createdAt      DateTime @default(now())
+  createdAt      DateTime  @default(now())
   revokedAt      DateTime?
-  user           User     @relation(fields: [userId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade)
+  user           User      @relation(fields: [userId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade)
 
   @@index([userId, organizationId])
   @@index([expiresAt])
