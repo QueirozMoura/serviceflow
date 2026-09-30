@@ -9,6 +9,8 @@ const envSchema = z.object({
   CORS_ORIGIN: z.string().min(1).default('http://localhost:3000'),
   RATE_LIMIT_MAX: z.coerce.number().int().positive().default(100),
   RATE_LIMIT_WINDOW: z.string().min(1).default('1 minute'),
+  AUTH_SESSION_TTL_SECONDS: z.coerce.number().int().positive().default(604800),
+  AUTH_COOKIE_NAME: z.string().regex(/^[a-zA-Z0-9_-]+$/).default('serviceflow_session'),
 });
 
 const result = envSchema.safeParse(process.env);

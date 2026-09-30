@@ -1,12 +1,17 @@
 import Fastify, { type FastifyError } from 'fastify';
+import cookie from '@fastify/cookie';
 import { env } from './config/env.js';
 import { registerSecurityPlugins } from './plugins/security.js';
+import { authRoutes } from './routes/auth.js';
 import { healthRoutes } from './routes/health.js';
+import type { AuthRepository } from './modules/auth/repository.js';
 
-export function buildApp() {
+export function buildApp(options: { authRepository?: AuthRepository } = {}) {
   const app = Fastify({
     logger: env.NODE_ENV !== 'test',
   });
+  app.decorateRequest('user', null);
+  app.register(cookie);
 
   app.setErrorHandler((error: FastifyError, request, reply) => {
     request.log.error({ err: error }, 'Unhandled request error');
@@ -23,6 +28,7 @@ export function buildApp() {
 
   app.register(registerSecurityPlugins);
   app.register(healthRoutes, { prefix: '/api' });
+  app.register(authRoutes, { prefix: '/api/auth', repository: options.authRepository });
 
   return app;
 }

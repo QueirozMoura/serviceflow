@@ -6,3 +6,200 @@ datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
 }
+
+enum UserRole {
+  OWNER
+  ADMIN
+  TECHNICIAN
+}
+
+enum ServiceOrderStatus {
+  RECEIVED
+  WAITING_DIAGNOSIS
+  WAITING_APPROVAL
+  APPROVED
+  IN_PROGRESS
+  READY
+  DELIVERED
+  CANCELLED
+}
+
+enum QuoteStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  EXPIRED
+}
+
+enum ServiceItemType {
+  LABOR
+  PART
+}
+
+model Organization {
+  id            String         @id @default(uuid())
+  name          String
+  slug          String         @unique
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  users         User[]
+  customers     Customer[]
+  equipment     Equipment[]
+  serviceOrders ServiceOrder[]
+}
+
+model User {
+  id             String                      @id @default(uuid())
+  organizationId String
+  name           String
+  email          String
+  passwordHash   String
+  role           UserRole
+  createdAt      DateTime                    @default(now())
+  updatedAt      DateTime                    @updatedAt
+  organization   Organization                @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  statusChanges  ServiceOrderStatusHistory[]
+  sessions       Session[]
+
+  @@unique([organizationId, email])
+  @@unique([id, organizationId])
+  @@index([organizationId])
+}
+
+model Customer {
+  id             String         @id @default(uuid())
+  organizationId String
+  name           String
+  email          String?
+  phone          String
+  document       String?
+  address        String?
+  notes          String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  equipment      Equipment[]
+  serviceOrders  ServiceOrder[]
+
+  @@unique([id, organizationId])
+  @@index([organizationId])
+  @@index([organizationId, phone])
+  @@index([organizationId, name])
+  @@index([organizationId, email])
+}
+
+model Equipment {
+  id             String         @id @default(uuid())
+  organizationId String
+  customerId     String
+  type           String
+  brand          String?
+  model          String?
+  serialNumber   String?
+  description    String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  customer       Customer       @relation(fields: [customerId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade)
+  serviceOrders  ServiceOrder[]
+
+  @@unique([id, organizationId])
+  @@index([organizationId])
+  @@index([organizationId, customerId])
+  @@index([organizationId, serialNumber])
+}
+
+model ServiceOrder {
+  id                 String                      @id @default(uuid())
+  organizationId     String
+  customerId         String
+  equipmentId        String
+  orderNumber        String
+  status             ServiceOrderStatus
+  problemDescription String
+  technicianNotes    String?
+  estimatedValue     Decimal?                    @db.Decimal(12, 2)
+  finalValue         Decimal?                    @db.Decimal(12, 2)
+  receivedAt         DateTime
+  completedAt        DateTime?
+  createdAt          DateTime                    @default(now())
+  updatedAt          DateTime                    @updatedAt
+  organization       Organization                @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  customer           Customer                    @relation(fields: [customerId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade)
+  equipment          Equipment                   @relation(fields: [equipmentId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade)
+  diagnosis          Diagnosis?
+  quote              Quote?
+  statusHistory      ServiceOrderStatusHistory[]
+
+  @@unique([organizationId, orderNumber])
+  @@unique([id, organizationId])
+  @@index([organizationId])
+  @@index([organizationId, status])
+  @@index([organizationId, customerId])
+  @@index([organizationId, equipmentId])
+  @@index([organizationId, receivedAt])
+}
+
+model Diagnosis {
+  id             String       @id @default(uuid())
+  serviceOrderId String       @unique
+  description    String
+  estimatedCost  Decimal?     @db.Decimal(12, 2)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  serviceOrder   ServiceOrder @relation(fields: [serviceOrderId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+}
+
+model Quote {
+  id             String        @id @default(uuid())
+  serviceOrderId String        @unique
+  status         QuoteStatus
+  total          Decimal       @db.Decimal(12, 2)
+  notes          String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  serviceOrder   ServiceOrder  @relation(fields: [serviceOrderId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  items          ServiceItem[]
+}
+
+model ServiceItem {
+  id          String          @id @default(uuid())
+  quoteId     String
+  description String
+  quantity    Decimal         @db.Decimal(10, 3)
+  unitPrice   Decimal         @db.Decimal(12, 2)
+  type        ServiceItemType
+  quote       Quote           @relation(fields: [quoteId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([quoteId])
+}
+
+model ServiceOrderStatusHistory {
+  id              String              @id @default(uuid())
+  organizationId  String
+  serviceOrderId  String
+  fromStatus      ServiceOrderStatus?
+  toStatus        ServiceOrderStatus
+  changedByUserId String
+  createdAt       DateTime            @default(now())
+  serviceOrder    ServiceOrder        @relation(fields: [serviceOrderId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade)
+  changedByUser   User                @relation(fields: [changedByUserId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([organizationId])
+  @@index([serviceOrderId, createdAt])
+  @@index([changedByUserId])
+}
+
+model Session {
+  id             String   @id @default(uuid())
+  tokenHash      String   @unique
+  userId         String
+  organizationId String
+  expiresAt      DateTime
+  createdAt      DateTime @default(now())
+  revokedAt      DateTime?
+  user           User     @relation(fields: [userId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([userId, organizationId])
+  @@index([expiresAt])
+}
