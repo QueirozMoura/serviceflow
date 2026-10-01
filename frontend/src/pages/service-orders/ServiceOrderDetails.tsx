@@ -114,7 +114,7 @@ export function ServiceOrderDetails() {
       <Card className="full-detail-card"><div className="section-heading"><h3>Comunicação</h3><MessageSquare size={18} /></div><div className="message-controls"><select value={messageType} onChange={(event) => setMessageType(event.target.value as MessageResponse['type'])}><option value="SERVICE_RECEIVED">OS recebida</option><option value="DIAGNOSIS_READY">Diagnóstico pronto</option><option value="QUOTE_READY">Orçamento pronto</option><option value="QUOTE_APPROVED">Orçamento aprovado</option><option value="SERVICE_IN_PROGRESS">Serviço em andamento</option><option value="SERVICE_READY">Serviço pronto</option><option value="SERVICE_DELIVERED">Serviço entregue</option><option value="WARRANTY_CREATED">Garantia criada</option></select><Button className="button-primary" onClick={generateMessage} disabled={operation === 'message'}><Send size={16} />{operation === 'message' ? 'Gerando...' : 'Gerar mensagem'}</Button></div>{message ? <div className="generated-message"><p>{message.message}</p><Button className="button-secondary button-small" onClick={() => void copyMessage()}><Copy size={15} /> Copiar</Button></div> : null}</Card>
     </div>
     <ConfirmDialog isOpen={confirmAction !== null} title={confirmTitle ?? ''} message={confirmMessage ?? ''} isLoading={operation.endsWith('delete')} onCancel={() => setConfirmAction(null)} onConfirm={removeConfirmed} />
-    <Toast message={toast} onClose={() => setToast('')} />
+    {toast ? <Toast message={toast} onClose={() => setToast('')} /> : null}
   </div>;
 }
 

@@ -1,5 +1,5 @@
 import { api } from './api';
-import type { DiagnosisResponse, MessageResponse, PaymentsResponse, QuoteResponse, ServiceOrderInput, ServiceOrderResponse, ServiceOrderStatus, ServiceOrderUpdate, ServiceOrdersResponse, WarrantyResponse, MessageType } from '../types/service-order';
+import type { DiagnosisResponse, MessageResponse, ServiceOrderInput, ServiceOrderResponse, ServiceOrderStatus, ServiceOrderUpdate, ServiceOrdersResponse, MessageType } from '../types/service-order';
 
 export const serviceOrdersService = {
   list: (status?: ServiceOrderStatus) => api.get<ServiceOrdersResponse>(`/api/service-orders${status ? `?status=${status}` : ''}`),
@@ -11,8 +11,5 @@ export const serviceOrdersService = {
   getDiagnosis: (id: string) => api.get<DiagnosisResponse>(`/api/service-orders/${id}/diagnosis`),
   createDiagnosis: (id: string, input: { description: string; estimatedCost?: string | null }) => api.post<DiagnosisResponse>(`/api/service-orders/${id}/diagnosis`, input),
   updateDiagnosis: (id: string, input: { description?: string; estimatedCost?: string | null }) => api.patch<DiagnosisResponse>(`/api/service-orders/${id}/diagnosis`, input),
-  getQuote: (id: string) => api.get<QuoteResponse>(`/api/service-orders/${id}/quote`),
-  getPayments: (id: string) => api.get<PaymentsResponse>(`/api/service-orders/${id}/payments`),
-  getWarranty: (id: string) => api.get<WarrantyResponse>(`/api/service-orders/${id}/warranty`),
   generateMessage: (id: string, type: MessageType) => api.post<MessageResponse>(`/api/service-orders/${id}/messages`, { type }),
 };
