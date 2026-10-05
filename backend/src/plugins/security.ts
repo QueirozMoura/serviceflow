@@ -10,6 +10,9 @@ export async function registerSecurityPlugins(app: FastifyInstance): Promise<voi
   await app.register(helmet);
   await app.register(cors, {
     origin: allowedOrigins,
+    // A sessao e transportada por cookie HttpOnly; o navegador so envia/aceita
+    // o cookie em requisicoes cross-origin (frontend <> backend) com credentials.
+    credentials: true,
   });
   await app.register(rateLimit, {
     max: env.RATE_LIMIT_MAX,

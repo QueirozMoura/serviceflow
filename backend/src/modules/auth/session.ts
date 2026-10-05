@@ -15,16 +15,19 @@ export function sessionExpiresAt(): Date {
   return new Date(Date.now() + env.AUTH_SESSION_TTL_SECONDS * 1000);
 }
 
+function cookieSecurityOptions() {
+  // SameSite=None so funciona com Secure; producao sempre usa HTTPS.
+  const secure = env.NODE_ENV === 'production' || env.AUTH_COOKIE_SAME_SITE === 'none';
+  return { httpOnly: true, sameSite: env.AUTH_COOKIE_SAME_SITE, secure, path: '/' } as const;
+}
+
 export function setSessionCookie(reply: FastifyReply, token: string): void {
   reply.setCookie(env.AUTH_COOKIE_NAME, token, {
-    httpOnly: true,
-    sameSite: 'lax',
-    secure: env.NODE_ENV === 'production',
-    path: '/',
+    ...cookieSecurityOptions(),
     maxAge: env.AUTH_SESSION_TTL_SECONDS,
   });
 }
 
 export function clearSessionCookie(reply: FastifyReply): void {
-  reply.clearCookie(env.AUTH_COOKIE_NAME, { httpOnly: true, sameSite: 'lax', secure: env.NODE_ENV === 'production', path: '/' });
+  reply.clearCookie(env.AUTH_COOKIE_NAME, cookieSecurityOptions());
 }
