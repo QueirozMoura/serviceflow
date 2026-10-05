@@ -1,4 +1,5 @@
 import Fastify, { type FastifyError } from 'fastify';
+import { Prisma } from '@prisma/client';
 import cookie from '@fastify/cookie';
 import { env } from './config/env.js';
 import { prisma } from './lib/prisma.js';
@@ -28,20 +29,39 @@ import { healthRoutes } from './routes/health.js';
 export function buildApp(options: { authRepository?: AuthRepository; customerRepository?: CustomerRepository; equipmentRepository?: EquipmentRepository; serviceOrderRepository?: ServiceOrderRepository; diagnosisRepository?: DiagnosisRepository; quoteRepository?: QuoteRepository; paymentRepository?: PaymentRepository; warrantyRepository?: WarrantyRepository; dashboardRepository?: DashboardRepository; messageRepository?: MessageRepository } = {}) {
   const app = Fastify({
     logger: env.NODE_ENV !== 'test',
+    // Atras de um proxy reverso (nginx, plataformas de deploy) o IP real do
+    // cliente chega em X-Forwarded-For. Sem trustProxy o rate limit usaria o
+    // IP do proxy, compartilhando o limite entre todos os clientes.
+    trustProxy: env.TRUST_PROXY,
   });
   app.decorateRequest('user', null);
   app.register(cookie);
   const authRepository = options.authRepository ?? new PrismaAuthRepository(prisma);
 
   app.setErrorHandler((error: FastifyError, request, reply) => {
-    request.log.error({ err: error }, 'Unhandled request error');
+    // Identificadores malformados (ex.: UUID invalido em /:id) chegam ao Prisma e
+    // retornam P2023. Isso e entrada invalida do cliente, nao falha do servidor.
+    const isInvalidInput = error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2023';
+    const statusCode = isInvalidInput ? 400 : error.statusCode && error.statusCode >= 400 ? error.statusCode : 500;
+    const isServerError = statusCode >= 500;
 
-    const statusCode = error.statusCode && error.statusCode >= 400 ? error.statusCode : 500;
-    const message = env.NODE_ENV === 'production' && statusCode >= 500 ? 'Internal server error' : error.message;
+    if (isServerError) {
+      request.log.error({ err: error }, 'Unhandled request error');
+    } else {
+      request.log.info({ err: error }, 'Request rejected');
+    }
+
+    // Nunca expor detalhes internos (Prisma, stack) ao cliente.
+    const message = isInvalidInput
+      ? 'Invalid identifier'
+      : isServerError && env.NODE_ENV === 'production'
+        ? 'Internal server error'
+        : error.message;
+    const errorName = isServerError ? 'Internal Server Error' : isInvalidInput ? 'Bad Request' : error.name;
 
     return reply.status(statusCode).send({
       statusCode,
-      error: statusCode >= 500 ? 'Internal Server Error' : error.name,
+      error: errorName,
       message,
     });
   });

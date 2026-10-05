@@ -15,6 +15,13 @@ const envSchema = z
     AUTH_SESSION_TTL_SECONDS: z.coerce.number().int().positive().default(604800),
     AUTH_COOKIE_NAME: z.string().regex(/^[a-zA-Z0-9_-]+$/).default('serviceflow_session'),
     AUTH_COOKIE_SAME_SITE: z.enum(['lax', 'strict', 'none']).default('lax'),
+    // Numero de proxies reversos a confiar para o IP real (X-Forwarded-For).
+    // false desabilita; true confia em todos; integer confia em N hops.
+    TRUST_PROXY: z
+      .enum(['true', 'false'])
+      .or(z.coerce.number().int().min(0))
+      .default('false')
+      .transform((value) => (value === 'true' ? true : value === 'false' ? false : String(value))),
   })
   .superRefine((value, context) => {
     const origins = value.CORS_ORIGIN.split(',').map((origin) => origin.trim());
