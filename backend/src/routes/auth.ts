@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { PrismaClient } from '@prisma/client';
 import { env } from '../config/env.js';
@@ -6,14 +7,28 @@ import { authenticate } from '../middlewares/authenticate.js';
 import { loginSchema, registerSchema } from '../modules/auth/schemas.js';
 import { PrismaAuthRepository, type AuthRepository } from '../modules/auth/repository.js';
 import {
+  buildGoogleAuthorizationUrl,
+  exchangeCodeForIdentity,
+  getGoogleOAuthConfig,
+  isGoogleOAuthEnabled,
+} from '../modules/auth/google.js';
+import {
   authenticateAccount,
   createUserSession,
   getPublicAccount,
   getPublicUser,
   isUniqueConstraintError,
   registerAccount,
+  resolveGoogleUser,
 } from '../modules/auth/service.js';
-import { clearSessionCookie, hashSessionToken, setSessionCookie } from '../modules/auth/session.js';
+import {
+  clearOAuthStateCookie,
+  clearSessionCookie,
+  hashSessionToken,
+  readOAuthStateCookie,
+  setOAuthStateCookie,
+  setSessionCookie,
+} from '../modules/auth/session.js';
 
 type AuthRoutesOptions = { repository?: AuthRepository; database?: PrismaClient };
 
@@ -68,5 +83,54 @@ export async function authRoutes(app: FastifyInstance, options: AuthRoutesOption
     }
 
     return reply.send({ user: { ...getPublicUser(user), organization: { id: user.organization.id, name: user.organization.name } } });
+  });
+
+  // Inicia o fluxo OAuth: redireciona o navegador ao Google com state anti-CSRF.
+  app.get('/google', async (_request, reply) => {
+    if (!isGoogleOAuthEnabled()) {
+      return reply.status(404).send({ statusCode: 404, error: 'Not Found', message: 'Google sign-in is not available' });
+    }
+
+    const state = randomBytes(24).toString('base64url');
+    setOAuthStateCookie(reply, state);
+    return reply.redirect(buildGoogleAuthorizationUrl(getGoogleOAuthConfig(), state));
+  });
+
+  // Callback registrado no Google Cloud. Valida o state, cria a sessao HttpOnly
+  // existente e redireciona o navegador de volta ao frontend.
+  app.get('/google/callback', async (request, reply) => {
+    const query = request.query as { code?: string; state?: string; error?: string };
+    const failureRedirect = env.OAUTH_FAILURE_REDIRECT ?? env.CORS_ORIGIN.split(',')[0]?.trim() ?? '/';
+
+    const fail = (): void => {
+      clearOAuthStateCookie(reply);
+      const separator = failureRedirect.includes('?') ? '&' : '?';
+      void reply.redirect(`${failureRedirect}${separator}error=oauth`);
+    };
+
+    if (!isGoogleOAuthEnabled()) {
+      return fail();
+    }
+
+    const expectedState = readOAuthStateCookie(request.cookies);
+    if (!expectedState || !query.state || query.state !== expectedState || query.error || !query.code) {
+      return fail();
+    }
+    clearOAuthStateCookie(reply);
+
+    let user;
+    try {
+      const identity = await exchangeCodeForIdentity(getGoogleOAuthConfig(), query.code);
+      user = await resolveGoogleUser(repository, identity);
+    } catch (error) {
+      request.log.error({ err: error }, 'Google OAuth callback failed');
+      return fail();
+    }
+
+    const token = await createUserSession(repository, user);
+    setSessionCookie(reply, token);
+
+    const successRedirect = env.OAUTH_SUCCESS_REDIRECT ?? env.CORS_ORIGIN.split(',')[0]?.trim() ?? '/';
+    return reply.redirect(successRedirect);
   });
 }

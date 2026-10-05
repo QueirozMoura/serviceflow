@@ -1,5 +1,10 @@
 const API_URL = (import.meta.env.VITE_API_URL ?? '').replace(/\/$/, '');
 
+/** URL do backend para iniciar o fluxo OAuth por navegacao (Authorization Code). */
+export function googleAuthUrl(): string {
+  return `${API_URL}/api/auth/google`;
+}
+
 export class ApiError extends Error {
   constructor(
     message: string,

@@ -31,3 +31,21 @@ export function setSessionCookie(reply: FastifyReply, token: string): void {
 export function clearSessionCookie(reply: FastifyReply): void {
   reply.clearCookie(env.AUTH_COOKIE_NAME, cookieSecurityOptions());
 }
+
+const OAUTH_STATE_COOKIE = 'serviceflow_oauth_state';
+
+/** Guarda o state anti-CSRF do OAuth em cookie HttpOnly de curta duracao. */
+export function setOAuthStateCookie(reply: FastifyReply, state: string): void {
+  reply.setCookie(OAUTH_STATE_COOKIE, state, {
+    ...cookieSecurityOptions(),
+    maxAge: 600,
+  });
+}
+
+export function readOAuthStateCookie(cookies: Record<string, string | undefined>): string | undefined {
+  return cookies[OAUTH_STATE_COOKIE];
+}
+
+export function clearOAuthStateCookie(reply: FastifyReply): void {
+  reply.clearCookie(OAUTH_STATE_COOKIE, cookieSecurityOptions());
+}

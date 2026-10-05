@@ -5,7 +5,7 @@ export interface AuthUserRecord {
   organizationId: string;
   name: string;
   email: string;
-  passwordHash: string;
+  passwordHash: string | null;
   role: UserRole;
   organization: {
     id: string;
@@ -42,6 +42,16 @@ export interface AuthRepository {
   }): Promise<void>;
   findSessionByTokenHash(tokenHash: string): Promise<AuthSessionRecord | null>;
   revokeSession(tokenHash: string): Promise<void>;
+  findUserByOAuthAccount(provider: string, providerAccountId: string): Promise<AuthUserRecord | null>;
+  linkOAuthAccount(input: { provider: string; providerAccountId: string; userId: string; organizationId: string }): Promise<void>;
+  createOrganizationWithOAuthUser(input: {
+    organizationName: string;
+    slug: string;
+    name: string;
+    email: string;
+    provider: string;
+    providerAccountId: string;
+  }): Promise<CreatedAccount>;
 }
 
 export class PrismaAuthRepository implements AuthRepository {
@@ -112,6 +122,51 @@ export class PrismaAuthRepository implements AuthRepository {
     await this.db.session.updateMany({
       where: { tokenHash, revokedAt: null },
       data: { revokedAt: new Date() },
+    });
+  }
+
+  findUserByOAuthAccount(provider: string, providerAccountId: string): Promise<AuthUserRecord | null> {
+    return this.db.user.findFirst({
+      where: { oauthAccounts: { some: { provider, providerAccountId } } },
+      include: { organization: true },
+    });
+  }
+
+  async linkOAuthAccount(input: { provider: string; providerAccountId: string; userId: string; organizationId: string }): Promise<void> {
+    await this.db.oAuthAccount.create({ data: input });
+  }
+
+  async createOrganizationWithOAuthUser(input: {
+    organizationName: string;
+    slug: string;
+    name: string;
+    email: string;
+    provider: string;
+    providerAccountId: string;
+  }): Promise<CreatedAccount> {
+    return this.db.$transaction(async (transaction) => {
+      const organization = await transaction.organization.create({
+        data: { name: input.organizationName, slug: input.slug },
+      });
+      const user = await transaction.user.create({
+        data: {
+          organizationId: organization.id,
+          name: input.name,
+          email: input.email,
+          role: UserRole.OWNER,
+        },
+        include: { organization: true },
+      });
+      await transaction.oAuthAccount.create({
+        data: {
+          provider: input.provider,
+          providerAccountId: input.providerAccountId,
+          userId: user.id,
+          organizationId: organization.id,
+        },
+      });
+
+      return { user, organization };
     });
   }
 }

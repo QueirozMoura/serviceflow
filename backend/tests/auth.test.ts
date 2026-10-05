@@ -75,6 +75,43 @@ class MemoryAuthRepository implements AuthRepository {
     const session = this.sessions.get(tokenHash);
     if (session) session.revokedAt = new Date();
   }
+
+  private oauthAccounts = new Map<string, { userId: string; organizationId: string }>();
+
+  findUserByOAuthAccount(provider: string, providerAccountId: string): Promise<AuthUserRecord | null> {
+    const link = this.oauthAccounts.get(`${provider}:${providerAccountId}`);
+    if (!link) return Promise.resolve(null);
+    return Promise.resolve(this.users.find((user) => user.id === link.userId) ?? null);
+  }
+
+  async linkOAuthAccount(input: { provider: string; providerAccountId: string; userId: string; organizationId: string }): Promise<void> {
+    this.oauthAccounts.set(`${input.provider}:${input.providerAccountId}`, { userId: input.userId, organizationId: input.organizationId });
+  }
+
+  async createOrganizationWithOAuthUser(input: {
+    organizationName: string;
+    slug: string;
+    name: string;
+    email: string;
+    provider: string;
+    providerAccountId: string;
+  }): Promise<CreatedAccount> {
+    const id = String(++this.sequence);
+    const organization = { id: `organization-${id}`, name: input.organizationName, slug: input.slug };
+    const user: AuthUserRecord = {
+      id: `user-${id}`,
+      organizationId: organization.id,
+      name: input.name,
+      email: input.email,
+      passwordHash: null,
+      role: UserRole.OWNER,
+      organization,
+    };
+    this.organizations.push(organization);
+    this.users.push(user);
+    await this.linkOAuthAccount({ provider: input.provider, providerAccountId: input.providerAccountId, userId: user.id, organizationId: organization.id });
+    return { user, organization };
+  }
 }
 
 describe('authentication routes', () => {

@@ -22,6 +22,15 @@ const envSchema = z
       .or(z.coerce.number().int().min(0))
       .default('false')
       .transform((value) => (value === 'true' ? true : value === 'false' ? false : String(value))),
+    GOOGLE_CLIENT_ID: z.string().min(1).optional(),
+    GOOGLE_CLIENT_SECRET: z.string().min(1).optional(),
+    // URL publica do callback registrada no Google Cloud Console.
+    // Ex.: https://serviceflow-15yc.onrender.com/api/auth/google/callback
+    GOOGLE_REDIRECT_URI: z.string().url().optional(),
+    // Para onde redirecionar o navegador apos autenticar (frontend).
+    OAUTH_SUCCESS_REDIRECT: z.string().url().optional(),
+    // Para onde redirecionar quando o fluxo OAuth falha (frontend /login).
+    OAUTH_FAILURE_REDIRECT: z.string().url().optional(),
   })
   .superRefine((value, context) => {
     const origins = value.CORS_ORIGIN.split(',').map((origin) => origin.trim());
@@ -61,6 +70,21 @@ const envSchema = z
         path: ['CORS_ORIGIN'],
         message: 'CORS_ORIGIN must list the real frontend origin(s) in production',
       });
+    }
+
+    // Se o Google OAuth estiver habilitado, todas as variaveis devem estar definidas.
+    const googleKeys = ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_REDIRECT_URI', 'OAUTH_SUCCESS_REDIRECT'] as const;
+    const provided = googleKeys.filter((key) => value[key] !== undefined);
+    if (provided.length > 0 && provided.length !== googleKeys.length) {
+      for (const key of googleKeys) {
+        if (value[key] === undefined) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: [key],
+            message: `${key} is required when Google OAuth is enabled`,
+          });
+        }
+      }
     }
   });
 
