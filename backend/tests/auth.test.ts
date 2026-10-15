@@ -11,6 +11,7 @@ import type {
 
 process.env.NODE_ENV = 'test';
 process.env.DATABASE_URL = 'postgresql://test:test@localhost:5432/test';
+process.env.CORS_ORIGIN = 'https://serviceflow-wine-seven.vercel.app';
 
 const { buildApp } = await import('../src/app.js');
 
@@ -206,9 +207,15 @@ describe('authentication routes', () => {
   });
 
   it('rejects unauthenticated access to the current user', async () => {
-    const response = await app.inject({ method: 'GET', url: '/api/auth/me' });
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/auth/me',
+      headers: { origin: 'https://serviceflow-wine-seven.vercel.app' },
+    });
 
     expect(response.statusCode).toBe(401);
+    expect(response.headers['access-control-allow-origin']).toBe('https://serviceflow-wine-seven.vercel.app');
+    expect(response.headers['access-control-allow-credentials']).toBe('true');
   });
 
   it('revokes the current session and remains safe when logged out twice', async () => {

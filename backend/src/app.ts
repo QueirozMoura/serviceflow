@@ -66,7 +66,7 @@ export function buildApp(options: { authRepository?: AuthRepository; customerRep
     });
   });
 
-  app.register(registerSecurityPlugins);
+  registerSecurityPlugins(app);
   app.register(healthRoutes, { prefix: '/api' });
   app.register(authRoutes, { prefix: '/api/auth', repository: authRepository });
   app.register(customerRoutes, {
