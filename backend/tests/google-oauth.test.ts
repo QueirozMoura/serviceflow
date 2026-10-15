@@ -190,6 +190,51 @@ describe('google oauth routes', () => {
     expect(String(response.headers['set-cookie'])).toContain('HttpOnly');
   });
 
+  it('preserves a valid internal destination through the OAuth callback', async () => {
+    exchangeCodeForIdentity.mockResolvedValueOnce({
+      providerAccountId: 'google-return-to',
+      email: 'return-to@example.com',
+      name: 'Return To User',
+    });
+
+    const start = await app.inject({ method: 'GET', url: '/api/auth/google?returnTo=%2Fcustomers%2Fnew' });
+    const startCookies = String(start.headers['set-cookie']);
+    const stateCookie = startCookies.match(/serviceflow_oauth_state=[^;]+/)?.[0];
+    const returnToCookie = startCookies.match(/serviceflow_oauth_return_to=[^;]+/)?.[0];
+
+    expect(start.statusCode).toBe(302);
+    expect(returnToCookie).toContain('serviceflow_oauth_return_to=/customers/new');
+
+    const callback = await app.inject({
+      method: 'GET',
+      url: '/api/auth/google/callback?code=valid-code&state=oauth-state',
+      headers: { cookie: `${stateCookie?.replace(/^[^=]+=[^;]+/, 'serviceflow_oauth_state=oauth-state')}; ${returnToCookie}` },
+    });
+
+    expect(callback.statusCode).toBe(302);
+    expect(callback.headers.location).toBe('https://serviceflow-wine-seven.vercel.app/customers/new');
+  });
+
+  it('falls back to the dashboard for invalid external destinations', async () => {
+    exchangeCodeForIdentity.mockResolvedValueOnce({
+      providerAccountId: 'google-invalid-return-to',
+      email: 'invalid-return-to@example.com',
+      name: 'Invalid Return To User',
+    });
+
+    const start = await app.inject({ method: 'GET', url: '/api/auth/google?returnTo=https%3A%2F%2Fevil.example' });
+    const startCookies = String(start.headers['set-cookie']);
+    const stateCookie = startCookies.match(/serviceflow_oauth_state=[^;]+/)?.[0];
+    const callback = await app.inject({
+      method: 'GET',
+      url: '/api/auth/google/callback?code=valid-code&state=oauth-state-invalid',
+      headers: { cookie: stateCookie?.replace(/^[^=]+=[^;]+/, 'serviceflow_oauth_state=oauth-state-invalid') },
+    });
+
+    expect(callback.statusCode).toBe(302);
+    expect(callback.headers.location).toBe('https://serviceflow-wine-seven.vercel.app/dashboard');
+  });
+
   it('rejects the callback when the state does not match', async () => {
     const response = await app.inject({
       method: 'GET',

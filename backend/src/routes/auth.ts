@@ -23,12 +23,16 @@ import {
 } from '../modules/auth/service.js';
 import {
   clearOAuthStateCookie,
+  clearOAuthReturnToCookie,
   clearSessionCookie,
   hashSessionToken,
   readOAuthStateCookie,
+  readOAuthReturnToCookie,
+  setOAuthReturnToCookie,
   setOAuthStateCookie,
   setSessionCookie,
 } from '../modules/auth/session.js';
+import { safeReturnPath } from '../utils/redirect.js';
 
 type AuthRoutesOptions = { repository?: AuthRepository; database?: PrismaClient };
 
@@ -86,13 +90,16 @@ export async function authRoutes(app: FastifyInstance, options: AuthRoutesOption
   });
 
   // Inicia o fluxo OAuth: redireciona o navegador ao Google com state anti-CSRF.
-  app.get('/google', async (_request, reply) => {
+  app.get('/google', async (request, reply) => {
     if (!isGoogleOAuthEnabled()) {
       return reply.status(404).send({ statusCode: 404, error: 'Not Found', message: 'Google sign-in is not available' });
     }
 
+    const returnTo = safeReturnPath((request.query as { returnTo?: string }).returnTo);
     const state = randomBytes(24).toString('base64url');
     setOAuthStateCookie(reply, state);
+    if (returnTo) setOAuthReturnToCookie(reply, returnTo);
+    else clearOAuthReturnToCookie(reply);
     return reply.redirect(buildGoogleAuthorizationUrl(getGoogleOAuthConfig(), state));
   });
 
@@ -104,6 +111,7 @@ export async function authRoutes(app: FastifyInstance, options: AuthRoutesOption
 
     const fail = (): void => {
       clearOAuthStateCookie(reply);
+      clearOAuthReturnToCookie(reply);
       const separator = failureRedirect.includes('?') ? '&' : '?';
       void reply.redirect(`${failureRedirect}${separator}error=oauth`);
     };
@@ -116,7 +124,9 @@ export async function authRoutes(app: FastifyInstance, options: AuthRoutesOption
     if (!expectedState || !query.state || query.state !== expectedState || query.error || !query.code) {
       return fail();
     }
+    const returnTo = safeReturnPath(readOAuthReturnToCookie(request.cookies));
     clearOAuthStateCookie(reply);
+    clearOAuthReturnToCookie(reply);
 
     let user;
     try {
@@ -131,6 +141,6 @@ export async function authRoutes(app: FastifyInstance, options: AuthRoutesOption
     setSessionCookie(reply, token);
 
     const successRedirect = env.OAUTH_SUCCESS_REDIRECT ?? env.CORS_ORIGIN.split(',')[0]?.trim() ?? '/';
-    return reply.redirect(successRedirect);
+    return reply.redirect(returnTo ? new URL(returnTo, successRedirect).toString() : successRedirect);
   });
 }

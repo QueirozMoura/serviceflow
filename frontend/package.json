@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite --host localhost --port 3000",
     "build": "tsc -b && vite build",
+    "test": "vitest run",
     "lint": "eslint .",
     "preview": "vite preview --host localhost --port 3000"
   },
@@ -26,6 +27,7 @@
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.7",
     "prettier": "latest",
+    "vitest": "latest",
     "typescript": "latest",
     "typescript-eslint": "latest"
   }

@@ -33,6 +33,7 @@ export function clearSessionCookie(reply: FastifyReply): void {
 }
 
 const OAUTH_STATE_COOKIE = 'serviceflow_oauth_state';
+const OAUTH_RETURN_TO_COOKIE = 'serviceflow_oauth_return_to';
 
 /** Guarda o state anti-CSRF do OAuth em cookie HttpOnly de curta duracao. */
 export function setOAuthStateCookie(reply: FastifyReply, state: string): void {
@@ -48,4 +49,19 @@ export function readOAuthStateCookie(cookies: Record<string, string | undefined>
 
 export function clearOAuthStateCookie(reply: FastifyReply): void {
   reply.clearCookie(OAUTH_STATE_COOKIE, cookieSecurityOptions());
+}
+
+export function setOAuthReturnToCookie(reply: FastifyReply, returnTo: string): void {
+  reply.setCookie(OAUTH_RETURN_TO_COOKIE, returnTo, {
+    ...cookieSecurityOptions(),
+    maxAge: 600,
+  });
+}
+
+export function readOAuthReturnToCookie(cookies: Record<string, string | undefined>): string | undefined {
+  return cookies[OAUTH_RETURN_TO_COOKIE];
+}
+
+export function clearOAuthReturnToCookie(reply: FastifyReply): void {
+  reply.clearCookie(OAUTH_RETURN_TO_COOKIE, cookieSecurityOptions());
 }

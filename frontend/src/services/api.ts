@@ -1,8 +1,11 @@
 const API_URL = (import.meta.env.VITE_API_URL ?? '').replace(/\/$/, '');
+import { safeReturnTo } from '../utils/returnTo';
 
 /** URL do backend para iniciar o fluxo OAuth por navegacao (Authorization Code). */
-export function googleAuthUrl(): string {
-  return `${API_URL}/api/auth/google`;
+export function googleAuthUrl(returnTo?: string): string {
+  const url = `${API_URL}/api/auth/google`;
+  const safeTarget = safeReturnTo(returnTo);
+  return safeTarget ? `${url}?returnTo=${encodeURIComponent(safeTarget)}` : url;
 }
 
 export class ApiError extends Error {
