@@ -167,6 +167,26 @@ describe('service order routes', () => {
     expect(deleted.statusCode).toBe(204);
   });
 
+  it('preserves decimal strings and accepts zero while rejecting locale commas at the API boundary', async () => {
+    const owner = await loginForOrganization('Orders Money');
+    const customerId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+    const equipmentId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+    serviceOrderRepository.seedCustomer(customerId, owner.organizationId, 'Customer Money');
+    serviceOrderRepository.seedEquipment(equipmentId, owner.organizationId, customerId);
+
+    const created = await app.inject({ method: 'POST', url: '/api/service-orders', headers: { cookie: owner.cookie }, payload: orderPayload(customerId, equipmentId, { estimatedValue: '0', finalValue: '125.50' }) });
+    const id = created.json().serviceOrder.id;
+    const updated = await app.inject({ method: 'PATCH', url: `/api/service-orders/${id}`, headers: { cookie: owner.cookie }, payload: { estimatedValue: '1.25' } });
+    const comma = await app.inject({ method: 'PATCH', url: `/api/service-orders/${id}`, headers: { cookie: owner.cookie }, payload: { finalValue: '125,50' } });
+
+    expect(created.statusCode).toBe(201);
+    expect(created.json().serviceOrder.estimatedValue).toBe('0');
+    expect(created.json().serviceOrder.finalValue).toBe('125.5');
+    expect(updated.statusCode).toBe(200);
+    expect(updated.json().serviceOrder.estimatedValue).toBe('1.25');
+    expect(comma.statusCode).toBe(400);
+  });
+
   it('rejects customers, equipment, and customer-equipment pairs from another context', async () => {
     const first = await loginForOrganization('Orders Two');
     const second = await loginForOrganization('Orders Three');
