@@ -11,12 +11,13 @@ import { EquipmentDetails } from '../pages/equipment/EquipmentDetails';
 import { ServiceOrderList } from '../pages/service-orders/ServiceOrderList';
 import { ServiceOrderForm } from '../pages/service-orders/ServiceOrderForm';
 import { ServiceOrderDetails } from '../pages/service-orders/ServiceOrderDetails';
+import { Demo } from '../pages/demo/Demo';
 import { ProtectedRoute, PublicRoute } from './ProtectedRoute';
 
 export function AppRoutes() {
   return (
     <Routes>
-      <Route element={<PublicRoute />}><Route path="/login" element={<Login />} /></Route>
+      <Route element={<PublicRoute />}><Route path="/" element={<Demo />} /><Route path="/login" element={<Login />} /></Route>
       <Route element={<ProtectedRoute />}><Route element={<AppLayout />}><Route path="/dashboard" element={<Dashboard />} /></Route></Route>
       <Route element={<ProtectedRoute />}><Route element={<AppLayout />}>
         <Route path="/customers" element={<CustomerList />} />

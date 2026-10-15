@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { useLocation } from 'react-router-dom';
 import { api } from '../services/api';
 import type { AuthResponse, User } from '../types/auth';
 
@@ -19,6 +20,7 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
+  const location = useLocation();
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -34,11 +36,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   useEffect(() => {
+    if (location.pathname === '/') {
+      setIsLoading(false);
+      return;
+    }
+
     void refreshSession();
     const handleUnauthorized = () => setUser(null);
     window.addEventListener('serviceflow:unauthorized', handleUnauthorized);
     return () => window.removeEventListener('serviceflow:unauthorized', handleUnauthorized);
-  }, []);
+  }, [location.pathname]);
 
   const login = async (input: LoginInput) => {
     const response = await api.post<AuthResponse>('/api/auth/login', input);
