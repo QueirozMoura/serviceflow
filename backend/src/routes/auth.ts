@@ -80,6 +80,15 @@ export async function authRoutes(app: FastifyInstance, options: AuthRoutesOption
     return reply.status(204).send();
   });
 
+  app.get('/session', async (request, reply) => {
+    const token = request.cookies[env.AUTH_COOKIE_NAME];
+    if (!token) return reply.send({ authenticated: false });
+
+    const session = await repository.findSessionByTokenHash(hashSessionToken(token));
+    const authenticated = Boolean(session && session.expiresAt > new Date());
+    return reply.send({ authenticated });
+  });
+
   app.get('/me', { preHandler: requireAuthentication }, async (request, reply) => {
     const user = request.user ? await repository.findUserById(request.user.id) : null;
     if (!user || user.organizationId !== request.user?.organizationId) {

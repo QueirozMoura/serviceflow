@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from '
 import { useLocation } from 'react-router-dom';
 import { api } from '../services/api';
 import type { AuthResponse, User } from '../types/auth';
+import { hasActiveSession } from '../utils/sessionProbe';
 
 interface LoginInput {
   email: string;
@@ -38,6 +39,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (location.pathname === '/') {
       setIsLoading(false);
+      void (async () => {
+        if (await hasActiveSession()) await refreshSession();
+      })();
       return;
     }
 

@@ -206,6 +206,30 @@ describe('authentication routes', () => {
     expect(JSON.stringify(response.json())).not.toContain('passwordHash');
   });
 
+  it('reports no active session without exposing user data', async () => {
+    const response = await app.inject({ method: 'GET', url: '/api/auth/session' });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ authenticated: false });
+  });
+
+  it('reports an active session without returning private data', async () => {
+    await register();
+    const loginResponse = await login();
+    const sessionCookie = String(loginResponse.headers['set-cookie']).split(';')[0];
+    const response = await app.inject({ method: 'GET', url: '/api/auth/session', headers: { cookie: sessionCookie } });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ authenticated: true });
+  });
+
+  it('reports an invalid session as inactive', async () => {
+    const response = await app.inject({ method: 'GET', url: '/api/auth/session', headers: { cookie: 'serviceflow_session=invalid' } });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ authenticated: false });
+  });
+
   it('rejects unauthenticated access to the current user', async () => {
     const response = await app.inject({
       method: 'GET',
