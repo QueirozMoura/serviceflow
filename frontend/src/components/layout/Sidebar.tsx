@@ -32,9 +32,9 @@ const groups = [
       { label: 'Clientes', icon: Users, to: '/customers' },
       { label: 'Equipamentos', icon: Boxes, to: '/equipment' },
       { label: 'Ordens de serviço', icon: ClipboardList, to: '/service-orders' },
-      { label: 'Orçamentos', icon: FileText },
-      { label: 'Pagamentos', icon: BadgeDollarSign },
-      { label: 'Garantias', icon: ShieldCheck },
+      { label: 'Orçamentos', icon: FileText, to: '/quotes' },
+      { label: 'Pagamentos', icon: BadgeDollarSign, to: '/payments' },
+      { label: 'Garantias', icon: ShieldCheck, to: '/warranties' },
     ],
   },
   {

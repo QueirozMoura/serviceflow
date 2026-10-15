@@ -11,6 +11,7 @@ import { EquipmentDetails } from '../pages/equipment/EquipmentDetails';
 import { ServiceOrderList } from '../pages/service-orders/ServiceOrderList';
 import { ServiceOrderForm } from '../pages/service-orders/ServiceOrderForm';
 import { ServiceOrderDetails } from '../pages/service-orders/ServiceOrderDetails';
+import { PaymentsPage, QuotesPage, WarrantiesPage } from '../pages/financial/ModuleList';
 import { Demo } from '../pages/demo/Demo';
 import { ProtectedRoute, PublicRoute } from './ProtectedRoute';
 
@@ -32,6 +33,9 @@ export function AppRoutes() {
         <Route path="/service-orders/new" element={<ServiceOrderForm />} />
         <Route path="/service-orders/:id" element={<ServiceOrderDetails />} />
         <Route path="/service-orders/:id/edit" element={<ServiceOrderForm />} />
+        <Route path="/quotes" element={<QuotesPage />} />
+        <Route path="/payments" element={<PaymentsPage />} />
+        <Route path="/warranties" element={<WarrantiesPage />} />
       </Route></Route>
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>
