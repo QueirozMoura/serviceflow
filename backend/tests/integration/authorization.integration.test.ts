@@ -49,7 +49,7 @@ describe('role-based authorization against a real PostgreSQL database', () => {
     const user = await db.user.create({ data: { organizationId, name, email: `${name.toLowerCase()}@example.com`, role } });
     return { id: user.id, cookie: await session(user.id, organizationId) };
   }
-  const request = (method: 'GET' | 'POST' | 'PATCH' | 'DELETE', url: string, cookie: string, payload?: object) => app.inject({ method, url, headers: { cookie }, ...(payload ? { payload } : {}) });
+  const request = (method: 'GET' | 'POST' | 'PATCH' | 'DELETE', url: string, cookie: string, payload?: object, headers: Record<string, string> = {}) => app.inject({ method, url, headers: { cookie, ...headers }, ...(payload ? { payload } : {}) });
   async function customerFor(cookie: string, name = 'Cliente') {
     const response = await request('POST', '/api/customers', cookie, { name, phone: '11999999999' });
     expect(response.statusCode).toBe(201);
@@ -124,7 +124,9 @@ describe('role-based authorization against a real PostgreSQL database', () => {
     expect(await db.quote.count({ where: { serviceOrderId: orderId } })).toBe(1);
     expect(await db.payment.count({ where: { organizationId } })).toBe(0);
 
-    const payment = await request('POST', `/api/service-orders/${orderId}/payments`, admin.cookie, { amount: '100.00', method: 'PIX' });
+    // O pagamento exige valor devido definido (aqui, o valor final da OS) e uma Idempotency-Key.
+    expect((await request('PATCH', `/api/service-orders/${orderId}`, admin.cookie, { finalValue: '100.00' })).statusCode).toBe(200);
+    const payment = await request('POST', `/api/service-orders/${orderId}/payments`, admin.cookie, { amount: '100.00', method: 'PIX' }, { 'idempotency-key': 'authorization-payment-0001' });
     expect(payment.statusCode).toBe(201);
     expect((await request('PATCH', `/api/service-orders/${orderId}/payments/${payment.json().payment.id}/status`, owner.cookie, { status: 'PAID' })).statusCode).toBe(200);
     expect((await request('GET', `/api/service-orders/${orderId}/payments`, owner.cookie)).json().payments).toHaveLength(1);

@@ -9,7 +9,8 @@ export const paymentsService = {
   listOverview: ({ page, pageSize, q, status }: PageParams & { status?: PaymentStatus }) => api.get<PaymentsOverviewResponse>(`/api/payments${buildQuery({ page, pageSize, q, status })}`),
   list: (serviceOrderId: string) => api.get<PaymentsResponse>(`/api/service-orders/${serviceOrderId}/payments`),
   get: (serviceOrderId: string, paymentId: string) => api.get<PaymentResponse>(`/api/service-orders/${serviceOrderId}/payments/${paymentId}`),
-  create: (serviceOrderId: string, input: PaymentInput) => api.post<PaymentResponse>(`/api/service-orders/${serviceOrderId}/payments`, input),
+  /** `idempotencyKey` identifica a operação: repetir a mesma tentativa deve reutilizá-la; uma operação nova exige outra. */
+  create: (serviceOrderId: string, input: PaymentInput, idempotencyKey: string) => api.post<PaymentResponse>(`/api/service-orders/${serviceOrderId}/payments`, input, { 'Idempotency-Key': idempotencyKey }),
   update: (serviceOrderId: string, paymentId: string, input: Partial<PaymentInput>) => api.patch<PaymentResponse>(`/api/service-orders/${serviceOrderId}/payments/${paymentId}`, input),
   updateStatus: (serviceOrderId: string, paymentId: string, status: PaymentStatus) => api.patch<PaymentResponse>(`/api/service-orders/${serviceOrderId}/payments/${paymentId}/status`, { status }),
   remove: (serviceOrderId: string, paymentId: string) => api.delete<void>(`/api/service-orders/${serviceOrderId}/payments/${paymentId}`),

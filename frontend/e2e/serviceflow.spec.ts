@@ -361,7 +361,9 @@ test('applies role permissions: a technician is restricted and an admin promoted
   await expect(page.getByText('Status alterado para Cancelada.')).toBeVisible();
 
   // Telas de modulo: uma requisicao agregada por tela e nenhuma chamada por OS.
-  expect((await page.request.post(`${api}/service-orders/${serviceOrder.id}/payments`, { data: { amount: '80.00', method: 'PIX' } })).status()).toBe(201);
+  // Pagamentos exigem valor devido definido e Idempotency-Key.
+  expect((await page.request.patch(`${api}/service-orders/${serviceOrder.id}`, { data: { finalValue: '80.00' } })).status()).toBe(200);
+  expect((await page.request.post(`${api}/service-orders/${serviceOrder.id}/payments`, { data: { amount: '80.00', method: 'PIX' }, headers: { 'Idempotency-Key': 'e2e-module-payment-0001' } })).status()).toBe(201);
   for (const [path, heading, aggregated] of [['/quotes', 'Orçamentos', '/api/quotes'], ['/payments', 'Pagamentos', '/api/payments'], ['/warranties', 'Garantias', '/api/warranties']] as const) {
     const requested: string[] = [];
     const onRequest = (request: { url(): string }) => { if (request.url().includes('/api/')) requested.push(new URL(request.url()).pathname); };

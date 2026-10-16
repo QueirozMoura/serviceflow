@@ -1,4 +1,4 @@
-import { PaymentStatus, Prisma, type Payment, type PrismaClient } from '@prisma/client';
+import { PaymentStatus, Prisma, QuoteStatus, type Payment, type PrismaClient } from '@prisma/client';
 import type { CreatePaymentInput, UpdatePaymentInput } from './schemas.js';
 
 export type PaymentRecord = Pick<Payment, 'id' | 'organizationId' | 'serviceOrderId' | 'amount' | 'status' | 'method' | 'createdAt' | 'updatedAt'> & {
@@ -10,7 +10,7 @@ export interface PaymentRepository {
   list(organizationId: string, serviceOrderId: string, status?: PaymentStatus): Promise<PaymentRecord[]>;
   findById(organizationId: string, serviceOrderId: string, paymentId: string): Promise<PaymentRecord | null>;
   /** created=false quando a mesma chave de idempotencia ja havia registrado exatamente este pagamento. */
-  create(organizationId: string, serviceOrderId: string, input: CreatePaymentInput, idempotencyKey?: string): Promise<{ payment: PaymentRecord; created: boolean }>;
+  create(organizationId: string, serviceOrderId: string, input: CreatePaymentInput, idempotencyKey: string): Promise<{ payment: PaymentRecord; created: boolean }>;
   update(organizationId: string, serviceOrderId: string, paymentId: string, input: UpdatePaymentInput): Promise<PaymentRecord | null>;
   updateStatus(organizationId: string, serviceOrderId: string, paymentId: string, status: PaymentStatus): Promise<PaymentRecord | null>;
   delete(organizationId: string, serviceOrderId: string, paymentId: string): Promise<boolean>;
@@ -20,6 +20,9 @@ const paymentInclude = {
   serviceOrder: { select: { id: true, orderNumber: true, status: true } },
 } as const;
 
+/** Unica fonte das transicoes permitidas; so PENDING->PAID mantem o saldo ocupado, as demais o liberam. */
+export const PAYMENT_TRANSITIONS: Record<PaymentStatus, PaymentStatus[]> = { PENDING: [PaymentStatus.PAID, PaymentStatus.FAILED, PaymentStatus.CANCELLED], PAID: [PaymentStatus.REFUNDED], FAILED: [], CANCELLED: [], REFUNDED: [] };
+
 type Transaction = Prisma.TransactionClient;
 
 const zero = new Prisma.Decimal(0);
@@ -27,31 +30,34 @@ const zero = new Prisma.Decimal(0);
 // Pagamentos que ocupam saldo: PENDING (registrado, ainda nao confirmado) e PAID. FAILED, CANCELLED e REFUNDED nao contam.
 const COUNTED_STATUSES = [PaymentStatus.PENDING, PaymentStatus.PAID];
 
-// Valor devido: o valor final da OS quando informado (> 0); senao o total do orcamento (> 0). Sem nenhum dos dois
-// nao ha como afirmar quanto e devido, entao o pagamento nao e limitado (comportamento anterior).
-function referenceValue(finalValue: Prisma.Decimal | null, quoteTotal: Prisma.Decimal | null): Prisma.Decimal | null {
-  for (const candidate of [finalValue, quoteTotal]) {
-    if (candidate !== null && new Prisma.Decimal(candidate).gt(zero)) return new Prisma.Decimal(candidate);
-  }
+// Valor devido: o valor final da OS quando definido (> 0); senao o total do orcamento unico da OS (> 0) desde que ele
+// nao esteja REJECTED/EXPIRED. O valor estimado nunca substitui o final. Sem nenhum dos dois o valor devido e
+// indeterminado e o pagamento e recusado (null).
+const INVALID_QUOTE_STATUSES: string[] = [QuoteStatus.REJECTED, QuoteStatus.EXPIRED];
+
+function referenceValue(finalValue: Prisma.Decimal | null, quoteTotal: Prisma.Decimal | null, quoteStatus: string | null): Prisma.Decimal | null {
+  if (finalValue !== null && new Prisma.Decimal(finalValue).gt(zero)) return new Prisma.Decimal(finalValue);
+  if (quoteTotal !== null && quoteStatus !== null && !INVALID_QUOTE_STATUSES.includes(quoteStatus) && new Prisma.Decimal(quoteTotal).gt(zero)) return new Prisma.Decimal(quoteTotal);
   return null;
 }
 
-// Trava a linha da OS (escopada pela organizacao) ate o fim da transacao. Todo pagamento de uma mesma OS passa por
-// aqui, entao as checagens de saldo e de idempotencia sao serializadas por OS. E o unico lock tomado por esses
-// fluxos, logo nao ha deadlock. Devolve undefined se a OS nao existe na organizacao.
+// Trava a linha da OS (escopada pela organizacao) ate o fim da transacao. TODO fluxo que cria, edita, remove ou muda o
+// status de um pagamento passa por aqui, entao saldo, idempotencia e transicoes de uma mesma OS sao serializados.
+// E o unico lock tomado por esses fluxos (os itens de orcamento travam apenas a linha do orcamento), logo nao ha
+// ordem de locks conflitante nem deadlock. Devolve undefined se a OS nao existe na organizacao.
 async function lockServiceOrder(transaction: Transaction, organizationId: string, serviceOrderId: string): Promise<{ reference: Prisma.Decimal | null } | undefined> {
-  const rows = await transaction.$queryRaw<Array<{ finalValue: Prisma.Decimal | null; quoteTotal: Prisma.Decimal | null }>>(Prisma.sql`
-    SELECT so."finalValue" AS "finalValue", q."total" AS "quoteTotal" FROM "ServiceOrder" so
+  const rows = await transaction.$queryRaw<Array<{ finalValue: Prisma.Decimal | null; quoteTotal: Prisma.Decimal | null; quoteStatus: string | null }>>(Prisma.sql`
+    SELECT so."finalValue" AS "finalValue", q."total" AS "quoteTotal", q."status"::text AS "quoteStatus" FROM "ServiceOrder" so
     LEFT JOIN "Quote" q ON q."serviceOrderId" = so."id"
     WHERE so."id" = ${serviceOrderId} AND so."organizationId" = ${organizationId}
     FOR UPDATE OF so`);
   const row = rows[0];
   if (!row) return undefined;
-  return { reference: referenceValue(row.finalValue, row.quoteTotal) };
+  return { reference: referenceValue(row.finalValue, row.quoteTotal, row.quoteStatus) };
 }
 
 async function assertWithinBalance(transaction: Transaction, organizationId: string, serviceOrderId: string, reference: Prisma.Decimal | null, amount: Prisma.Decimal, excludePaymentId?: string): Promise<void> {
-  if (reference === null) return;
+  if (reference === null) throw new PaymentDueAmountUnknownError();
   const committed = await transaction.payment.aggregate({
     where: { organizationId, serviceOrderId, status: { in: COUNTED_STATUSES }, ...(excludePaymentId ? { id: { not: excludePaymentId } } : {}) },
     _sum: { amount: true },
@@ -75,11 +81,10 @@ export class PrismaPaymentRepository implements PaymentRepository {
     return this.db.payment.findFirst({ where: { id: paymentId, organizationId, serviceOrderId }, include: paymentInclude });
   }
 
-  async create(organizationId: string, serviceOrderId: string, input: CreatePaymentInput, idempotencyKey?: string): Promise<{ payment: PaymentRecord; created: boolean }> {
+  async create(organizationId: string, serviceOrderId: string, input: CreatePaymentInput, idempotencyKey: string): Promise<{ payment: PaymentRecord; created: boolean }> {
     const amount = new Prisma.Decimal(input.amount);
     const matches = (existing: PaymentRecord) => existing.serviceOrderId === serviceOrderId && existing.method === input.method && new Prisma.Decimal(existing.amount).equals(amount);
     const replay = async (): Promise<{ payment: PaymentRecord; created: false } | null> => {
-      if (!idempotencyKey) return null;
       const existing = await this.db.payment.findFirst({ where: { organizationId, idempotencyKey }, include: paymentInclude });
       if (!existing) return null;
       if (!matches(existing)) throw new PaymentIdempotencyConflictError();
@@ -91,12 +96,10 @@ export class PrismaPaymentRepository implements PaymentRepository {
         const locked = await lockServiceOrder(transaction, organizationId, serviceOrderId);
         if (!locked) throw new PaymentServiceOrderNotFoundError();
         // Repeticao confirmada da mesma operacao: devolve o registro original, sem rechecar saldo (ele ja esta contado).
-        if (idempotencyKey) {
-          const existing = await transaction.payment.findFirst({ where: { organizationId, idempotencyKey }, include: paymentInclude });
-          if (existing) {
-            if (!matches(existing)) throw new PaymentIdempotencyConflictError();
-            return { payment: existing, created: false };
-          }
+        const existing = await transaction.payment.findFirst({ where: { organizationId, idempotencyKey }, include: paymentInclude });
+        if (existing) {
+          if (!matches(existing)) throw new PaymentIdempotencyConflictError();
+          return { payment: existing, created: false };
         }
         await assertWithinBalance(transaction, organizationId, serviceOrderId, locked.reference, amount);
         const payment = await transaction.payment.create({ data: { organizationId, serviceOrderId, amount, method: input.method, status: PaymentStatus.PENDING, idempotencyKey }, include: paymentInclude });
@@ -128,17 +131,27 @@ export class PrismaPaymentRepository implements PaymentRepository {
   }
 
   async updateStatus(organizationId: string, serviceOrderId: string, paymentId: string, status: PaymentStatus): Promise<PaymentRecord | null> {
-    const payment = await this.findById(organizationId, serviceOrderId, paymentId);
-    if (!payment) return null;
-    return this.db.payment.update({ where: { id: payment.id }, data: { status }, include: paymentInclude });
+    return this.db.$transaction(async (transaction) => {
+      if (!(await lockServiceOrder(transaction, organizationId, serviceOrderId))) return null;
+      // Relido sob o lock: a transicao e validada contra o estado real, nao contra uma leitura anterior.
+      const payment = await transaction.payment.findFirst({ where: { id: paymentId, organizationId, serviceOrderId } });
+      if (!payment) return null;
+      if (!PAYMENT_TRANSITIONS[payment.status].includes(status)) throw new PaymentTransitionError();
+      const result = await transaction.payment.updateMany({ where: { id: payment.id, organizationId, status: payment.status }, data: { status } });
+      if (result.count !== 1) throw new PaymentTransitionError();
+      return transaction.payment.findFirstOrThrow({ where: { id: payment.id, organizationId }, include: paymentInclude });
+    });
   }
 
   async delete(organizationId: string, serviceOrderId: string, paymentId: string): Promise<boolean> {
-    const payment = await this.findById(organizationId, serviceOrderId, paymentId);
-    if (!payment) return false;
-    if (payment.status === PaymentStatus.PAID || payment.status === PaymentStatus.REFUNDED) throw new PaymentImmutableError();
-    await this.db.payment.delete({ where: { id: payment.id } });
-    return true;
+    return this.db.$transaction(async (transaction) => {
+      if (!(await lockServiceOrder(transaction, organizationId, serviceOrderId))) return false;
+      const payment = await transaction.payment.findFirst({ where: { id: paymentId, organizationId, serviceOrderId } });
+      if (!payment) return false;
+      if (payment.status === PaymentStatus.PAID || payment.status === PaymentStatus.REFUNDED) throw new PaymentImmutableError();
+      await transaction.payment.deleteMany({ where: { id: payment.id, organizationId, status: payment.status } });
+      return true;
+    });
   }
 }
 
@@ -146,3 +159,5 @@ export class PaymentImmutableError extends Error {}
 export class PaymentExceedsBalanceError extends Error {}
 export class PaymentIdempotencyConflictError extends Error {}
 export class PaymentServiceOrderNotFoundError extends Error {}
+export class PaymentDueAmountUnknownError extends Error {}
+export class PaymentTransitionError extends Error {}

@@ -6,7 +6,7 @@ import type { Diagnosis, ServiceOrder } from '../../types/service-order';
 
 const serviceOrderServiceMock = vi.hoisted(() => ({ get: vi.fn(), updateStatus: vi.fn(), remove: vi.fn(), getDiagnosis: vi.fn(), createDiagnosis: vi.fn(), updateDiagnosis: vi.fn(), removeDiagnosis: vi.fn(), generateMessage: vi.fn(), getMessageHistory: vi.fn(), recordMessage: vi.fn() }));
 const quotesServiceMock = vi.hoisted(() => ({ get: vi.fn(), updateStatus: vi.fn() }));
-const paymentsServiceMock = vi.hoisted(() => ({ list: vi.fn() }));
+const paymentsServiceMock = vi.hoisted(() => ({ list: vi.fn(), create: vi.fn() }));
 const warrantiesServiceMock = vi.hoisted(() => ({ get: vi.fn() }));
 vi.mock('../../services/service-orders', () => ({ serviceOrdersService: serviceOrderServiceMock }));
 vi.mock('../../services/quotes', () => ({ quotesService: quotesServiceMock }));
@@ -251,6 +251,51 @@ describe('ServiceOrderDetails', () => {
   });
 
   const warranty = { id: 'warranty-1', serviceOrderId: 'order-1', status: 'ACTIVE', startDate: '2026-10-15T00:00:00.000Z', endDate: '2027-10-15T00:00:00.000Z', description: 'Garantia de 12 meses', createdAt: '2026-10-15T10:00:00.000Z', updatedAt: '2026-10-15T10:00:00.000Z' };
+
+  describe('registro de pagamento (Idempotency-Key)', () => {
+    const created = (id: string, amount: string) => ({ payment: { id, serviceOrderId: 'order-1', amount, method: 'PIX', status: 'PENDING', createdAt: '2026-10-15T10:00:00.000Z', updatedAt: '2026-10-15T10:00:00.000Z' } });
+    const openForm = async () => { fireEvent.click(await screen.findByRole('button', { name: /Registrar pagamento/ })); return screen.getByPlaceholderText('Valor'); };
+    const submit = () => fireEvent.click(screen.getByRole('button', { name: 'Registrar' }));
+    const keys = () => paymentsServiceMock.create.mock.calls.map((call) => call[2] as string);
+
+    it('sends an Idempotency-Key and reuses it when the same operation is retried after a failure', async () => {
+      paymentsServiceMock.create.mockRejectedValueOnce(new ApiError('network', 500)).mockResolvedValueOnce(created('payment-1', '50.00'));
+      renderPage();
+      fireEvent.change(await openForm(), { target: { value: '50' } });
+
+      submit();
+      await waitFor(() => expect(paymentsServiceMock.create).toHaveBeenCalledTimes(1));
+      await waitFor(() => expect((screen.getByRole('button', { name: 'Registrar' }) as HTMLButtonElement).disabled).toBe(false));
+      submit();
+      await waitFor(() => expect(paymentsServiceMock.create).toHaveBeenCalledTimes(2));
+
+      expect(paymentsServiceMock.create).toHaveBeenCalledWith('order-1', { amount: '50', method: 'PIX' }, expect.any(String));
+      expect(keys()[0]).toBeTruthy();
+      expect(keys()[1]).toBe(keys()[0]);
+    });
+
+    it('uses a new key when the content changes and a new one for the next payment after success', async () => {
+      paymentsServiceMock.create.mockRejectedValueOnce(new ApiError('Payment amount exceeds the outstanding balance', 409)).mockResolvedValueOnce(created('payment-1', '30.00')).mockResolvedValueOnce(created('payment-2', '30.00'));
+      renderPage();
+      const amount = await openForm();
+      fireEvent.change(amount, { target: { value: '500' } });
+      submit();
+      await waitFor(() => expect(paymentsServiceMock.create).toHaveBeenCalledTimes(1));
+      await waitFor(() => expect((screen.getByRole('button', { name: 'Registrar' }) as HTMLButtonElement).disabled).toBe(false));
+
+      fireEvent.change(screen.getByPlaceholderText('Valor'), { target: { value: '30' } });
+      submit();
+      await waitFor(() => expect(paymentsServiceMock.create).toHaveBeenCalledTimes(2));
+      await screen.findByText('Pagamento registrado.');
+
+      fireEvent.change(await openForm(), { target: { value: '30' } });
+      submit();
+      await waitFor(() => expect(paymentsServiceMock.create).toHaveBeenCalledTimes(3));
+
+      const [first, second, third] = keys();
+      expect(new Set([first, second, third]).size).toBe(3);
+    });
+  });
 
   describe('permissões do papel', () => {
     const quote = { id: 'quote-1', serviceOrderId: 'order-1', status: 'PENDING', total: '0.00', notes: null, createdAt: '2026-10-15T10:00:00.000Z', updatedAt: '2026-10-15T10:00:00.000Z', items: [] };

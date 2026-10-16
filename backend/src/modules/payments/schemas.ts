@@ -3,7 +3,7 @@ import { z } from 'zod';
 
 const amount = z
   .union([z.string(), z.number()])
-  .refine((value) => /^\d+(\.\d{1,2})?$/.test(String(value)) && Number(value) > 0, 'Invalid payment amount')
+  .refine((value) => /^\d{1,10}(\.\d{1,2})?$/.test(String(value)) && Number(value) > 0, 'Invalid payment amount')
   .transform(String);
 
 export const createPaymentSchema = z.object({
