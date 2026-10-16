@@ -1,4 +1,5 @@
-import { Prisma, type Equipment, type PrismaClient } from '@prisma/client';
+import { type Equipment, type PrismaClient } from '@prisma/client';
+import { isForeignKeyRestriction } from '../service-orders/repository.js';
 import { containsInsensitive, newestFirst, skipTake, type Page } from '../shared/pagination.js';
 import type { CreateEquipmentInput, ListEquipmentQuery, UpdateEquipmentInput } from './schemas.js';
 
@@ -67,7 +68,7 @@ export class PrismaEquipmentRepository implements EquipmentRepository {
       const result = await this.db.equipment.deleteMany({ where: { id, organizationId } });
       return result.count > 0;
     } catch (error) {
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2003') {
+      if (isForeignKeyRestriction(error)) {
         throw new EquipmentInUseError();
       }
       throw error;

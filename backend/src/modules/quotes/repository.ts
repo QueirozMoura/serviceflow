@@ -1,4 +1,5 @@
 import { Prisma, QuoteStatus, type PrismaClient, type Quote, type ServiceItem } from '@prisma/client';
+import { isForeignKeyRestriction } from '../service-orders/repository.js';
 import type { CreateQuoteInput, CreateServiceItemInput, UpdateQuoteInput, UpdateServiceItemInput } from './schemas.js';
 
 export type QuoteRecord = Pick<Quote, 'id' | 'serviceOrderId' | 'status' | 'total' | 'notes' | 'createdAt' | 'updatedAt'> & {
@@ -25,6 +26,26 @@ const quoteInclude = {
 
 function calculateTotal(items: Array<{ quantity: Prisma.Decimal; unitPrice: Prisma.Decimal }>): Prisma.Decimal {
   return items.reduce((total, item) => total.add(item.quantity.mul(item.unitPrice)), new Prisma.Decimal(0)).toDecimalPlaces(2);
+}
+
+type Transaction = Prisma.TransactionClient;
+
+// Serializa as mutacoes de itens de um mesmo orcamento: o lock de linha fica retido ate o fim da transacao, entao
+// cada uma le os itens ja confirmados pelas anteriores e grava um total que reflete a soma real. Um unico lock por
+// transacao (sempre na mesma linha) nao gera deadlock. O escopo da organizacao vem da OS dona do orcamento.
+async function lockQuote(transaction: Transaction, organizationId: string, serviceOrderId: string): Promise<string | null> {
+  const rows = await transaction.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+    SELECT q."id" FROM "Quote" q
+    JOIN "ServiceOrder" so ON so."id" = q."serviceOrderId"
+    WHERE so."id" = ${serviceOrderId} AND so."organizationId" = ${organizationId}
+    FOR UPDATE OF q`);
+  return rows[0]?.id ?? null;
+}
+
+async function refreshTotal(transaction: Transaction, quoteId: string): Promise<QuoteRecord> {
+  const items = await transaction.serviceItem.findMany({ where: { quoteId } });
+  await transaction.quote.update({ where: { id: quoteId }, data: { total: calculateTotal(items) } });
+  return transaction.quote.findUniqueOrThrow({ where: { id: quoteId }, include: quoteInclude });
 }
 
 export class PrismaQuoteRepository implements QuoteRepository {
@@ -66,45 +87,39 @@ export class PrismaQuoteRepository implements QuoteRepository {
       await this.db.quote.delete({ where: { id: quote.id } });
       return true;
     } catch (error) {
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2003') throw new QuoteInUseError();
+      if (isForeignKeyRestriction(error)) throw new QuoteInUseError();
       throw error;
     }
   }
 
   async addItem(organizationId: string, serviceOrderId: string, input: CreateServiceItemInput): Promise<QuoteRecord> {
     return this.db.$transaction(async (transaction) => {
-      const quote = await transaction.quote.findFirst({ where: { serviceOrder: { id: serviceOrderId, organizationId } }, include: { items: true } });
-      if (!quote) throw new QuoteNotFoundError();
-      await transaction.serviceItem.create({ data: { quoteId: quote.id, ...input } });
-      const items = await transaction.serviceItem.findMany({ where: { quoteId: quote.id } });
-      await transaction.quote.update({ where: { id: quote.id }, data: { total: calculateTotal(items) } });
-      return transaction.quote.findUniqueOrThrow({ where: { id: quote.id }, include: quoteInclude });
+      const quoteId = await lockQuote(transaction, organizationId, serviceOrderId);
+      if (!quoteId) throw new QuoteNotFoundError();
+      await transaction.serviceItem.create({ data: { quoteId, ...input } });
+      return refreshTotal(transaction, quoteId);
     });
   }
 
   async updateItem(organizationId: string, serviceOrderId: string, itemId: string, input: UpdateServiceItemInput): Promise<QuoteRecord | null> {
     return this.db.$transaction(async (transaction) => {
-      const quote = await transaction.quote.findFirst({ where: { serviceOrder: { id: serviceOrderId, organizationId } } });
-      if (!quote) return null;
-      const item = await transaction.serviceItem.findFirst({ where: { id: itemId, quoteId: quote.id } });
+      const quoteId = await lockQuote(transaction, organizationId, serviceOrderId);
+      if (!quoteId) return null;
+      const item = await transaction.serviceItem.findFirst({ where: { id: itemId, quoteId } });
       if (!item) return null;
       await transaction.serviceItem.update({ where: { id: itemId }, data: input });
-      const items = await transaction.serviceItem.findMany({ where: { quoteId: quote.id } });
-      await transaction.quote.update({ where: { id: quote.id }, data: { total: calculateTotal(items) } });
-      return transaction.quote.findUniqueOrThrow({ where: { id: quote.id }, include: quoteInclude });
+      return refreshTotal(transaction, quoteId);
     });
   }
 
   async deleteItem(organizationId: string, serviceOrderId: string, itemId: string): Promise<QuoteRecord | null> {
     return this.db.$transaction(async (transaction) => {
-      const quote = await transaction.quote.findFirst({ where: { serviceOrder: { id: serviceOrderId, organizationId } } });
-      if (!quote) return null;
-      const item = await transaction.serviceItem.findFirst({ where: { id: itemId, quoteId: quote.id } });
+      const quoteId = await lockQuote(transaction, organizationId, serviceOrderId);
+      if (!quoteId) return null;
+      const item = await transaction.serviceItem.findFirst({ where: { id: itemId, quoteId } });
       if (!item) return null;
       await transaction.serviceItem.delete({ where: { id: itemId } });
-      const items = await transaction.serviceItem.findMany({ where: { quoteId: quote.id } });
-      await transaction.quote.update({ where: { id: quote.id }, data: { total: calculateTotal(items) } });
-      return transaction.quote.findUniqueOrThrow({ where: { id: quote.id }, include: quoteInclude });
+      return refreshTotal(transaction, quoteId);
     });
   }
 }

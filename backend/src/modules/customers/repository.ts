@@ -1,4 +1,5 @@
 import type { PrismaClient, Customer } from '@prisma/client';
+import { isForeignKeyRestriction } from '../service-orders/repository.js';
 import { containsInsensitive, newestFirst, skipTake, type Page } from '../shared/pagination.js';
 import type { CreateCustomerInput, ListCustomersQuery, UpdateCustomerInput } from './schemas.js';
 
@@ -55,7 +56,19 @@ export class PrismaCustomerRepository implements CustomerRepository {
   }
 
   async delete(organizationId: string, id: string): Promise<boolean> {
-    const result = await this.db.customer.deleteMany({ where: { id, organizationId } });
-    return result.count > 0;
+    try {
+      const result = await this.db.customer.deleteMany({ where: { id, organizationId } });
+      return result.count > 0;
+    } catch (error) {
+      if (isForeignKeyRestriction(error)) throw new CustomerInUseError();
+      throw error;
+    }
+  }
+}
+
+export class CustomerInUseError extends Error {
+  constructor() {
+    super('Customer cannot be deleted while it has equipment or service orders');
+    this.name = 'CustomerInUseError';
   }
 }

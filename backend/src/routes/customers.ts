@@ -4,7 +4,7 @@ import { prisma } from '../lib/prisma.js';
 import { authenticate } from '../middlewares/authenticate.js';
 import { authorize } from '../middlewares/authorize.js';
 import type { AuthRepository } from '../modules/auth/repository.js';
-import { PrismaCustomerRepository, type CustomerRepository } from '../modules/customers/repository.js';
+import { CustomerInUseError, PrismaCustomerRepository, type CustomerRepository } from '../modules/customers/repository.js';
 import { createCustomerSchema, listCustomersQuerySchema, updateCustomerSchema } from '../modules/customers/schemas.js';
 import { buildPagination } from '../modules/shared/pagination.js';
 
@@ -74,8 +74,13 @@ export async function customerRoutes(app: FastifyInstance, options: CustomerRout
   app.delete('/:id', { preHandler: [requireAuthentication, authorize('customers:delete')] }, async (request, reply) => {
     if (!request.user) return reply.status(401).send({ statusCode: 401, error: 'Unauthorized', message: 'Authentication required' });
 
-    const deleted = await repository.delete(request.user.organizationId, (request.params as { id: string }).id);
-    if (!deleted) return notFound(reply);
-    return reply.status(204).send();
+    try {
+      const deleted = await repository.delete(request.user.organizationId, (request.params as { id: string }).id);
+      if (!deleted) return notFound(reply);
+      return reply.status(204).send();
+    } catch (error) {
+      if (error instanceof CustomerInUseError) return reply.status(409).send({ statusCode: 409, error: 'Conflict', message: error.message });
+      throw error;
+    }
   });
 }
