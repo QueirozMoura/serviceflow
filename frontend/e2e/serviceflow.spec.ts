@@ -88,6 +88,64 @@ test('navigates a protected session through the main operational flow', async ({
 
   await page.reload();
   await expect(page.getByText('Tela não liga após atualização E2E')).toBeVisible();
+
+  // Listas paginadas pelo servidor: 24 clientes novos + o criado acima = 25 (duas paginas de 20).
+  for (let index = 1; index <= 24; index += 1) {
+    const created = await page.request.post('/api/customers', { data: { name: `Lote ${String(index).padStart(2, '0')}`, phone: `1190000${String(index).padStart(4, '0')}` } });
+    expect(created.status()).toBe(201);
+  }
+  const listRequests: string[] = [];
+  const onRequest = (request: { url(): string }) => { const url = new URL(request.url()); if (url.pathname === '/api/customers') listRequests.push(url.search); };
+  page.on('request', onRequest);
+  await page.goto('/customers');
+  await expect(page.getByText('Mostrando 1–20 de 25 clientes')).toBeVisible();
+  await expect(page.getByText('Página 1 de 2')).toBeVisible();
+  await expect(page.getByRole('row')).toHaveCount(21);
+  await expect(page.getByRole('link', { name: 'Lote 24', exact: true })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Cliente E2E', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /Anterior/ })).toBeDisabled();
+
+  await page.getByRole('button', { name: /Próxima/ }).click();
+  await expect(page.getByText('Mostrando 21–25 de 25 clientes')).toBeVisible();
+  await expect(page.getByText('Página 2 de 2')).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Cliente E2E', exact: true })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Lote 01', exact: true })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Lote 24', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /Próxima/ })).toBeDisabled();
+
+  // A busca acontece no servidor, ignora maiusculas e volta para a primeira pagina.
+  await page.getByLabel('Buscar cliente por nome, telefone ou email').fill('LOTE 1');
+  await expect(page.getByText('Mostrando 1–10 de 10 clientes')).toBeVisible();
+  await expect(page.getByText('Página 1 de 1')).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Lote 10', exact: true })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Lote 24', exact: true })).toHaveCount(0);
+  await page.getByLabel('Buscar cliente por nome, telefone ou email').fill('nao existe');
+  await expect(page.getByText('Nenhum cliente corresponde à busca.')).toBeVisible();
+  await page.getByRole('button', { name: 'Limpar filtros' }).click();
+  await expect(page.getByText('Mostrando 1–20 de 25 clientes')).toBeVisible();
+  page.off('request', onRequest);
+  // Cada tela pede apenas uma pagina por vez, com os parametros no servidor (em desenvolvimento o StrictMode dobra a montagem).
+  expect(listRequests.length).toBeGreaterThanOrEqual(5);
+  expect(listRequests.every((search) => /page=\d+&pageSize=20/.test(search))).toBe(true);
+  expect(listRequests.some((search) => search.includes('page=2'))).toBe(true);
+  expect(listRequests.some((search) => search.includes('q=LOTE+1'))).toBe(true);
+
+  // Busca e filtro de status das ordens de servico tambem no servidor.
+  await page.goto('/service-orders');
+  await expect(page.getByText('1 ordem', { exact: true })).toBeVisible();
+  await page.getByLabel('Filtrar por status').selectOption('DELIVERED');
+  await expect(page.getByText('Nenhuma OS encontrada para essa busca.')).toBeVisible();
+  await page.getByRole('button', { name: 'Limpar filtros' }).click();
+  await expect(page.getByText('1 ordem', { exact: true })).toBeVisible();
+  await page.getByLabel('Buscar OS, cliente ou equipamento').fill('Cliente E2E');
+  await expect(page.getByText('1 ordem', { exact: true })).toBeVisible();
+
+  // Os seletores dos formularios continuam com a lista COMPLETA de clientes (nao so a primeira pagina).
+  await page.goto('/service-orders/new');
+  await expect(page.getByLabel('Cliente *').locator('option')).toHaveCount(26);
+  await expect(page.getByLabel('Cliente *')).toContainText('Lote 01');
+  await expect(page.getByLabel('Cliente *')).toContainText('Cliente E2E');
+
   await page.getByRole('button', { name: 'Sair' }).click();
   await expect(page).toHaveURL(/\/login$/);
 });
@@ -321,4 +379,23 @@ test('applies role permissions: a technician is restricted and an admin promoted
     expect(calls, `${path}: requisicoes agregadas`).toBeGreaterThanOrEqual(1);
     expect(calls, `${path}: requisicoes agregadas`).toBeLessThanOrEqual(2);
   }
+
+  // Orcamentos paginados: mais 21 OS com orcamento (22 no total) => duas paginas; filtro e totais vem do servidor.
+  for (let index = 1; index <= 21; index += 1) {
+    const extra = await page.request.post(`${api}/service-orders`, { data: { customerId: customer.customer.id, equipmentId: equipment.equipment.id, problemDescription: `Lote ${index}` } });
+    expect(extra.status()).toBe(201);
+    expect((await page.request.post(`${api}/service-orders/${(await extra.json()).serviceOrder.id}/quote`, { data: {} })).status()).toBe(201);
+  }
+  await page.goto('/quotes');
+  await expect(page.getByText('Mostrando 1–20 de 22 registros')).toBeVisible();
+  await expect(page.getByRole('row')).toHaveCount(21);
+  await expect(page.getByText('Aguardando aprovação').first()).toBeVisible();
+  await page.getByRole('button', { name: /Próxima/ }).click();
+  await expect(page.getByText('Mostrando 21–22 de 22 registros')).toBeVisible();
+  await expect(page.getByRole('row')).toHaveCount(3);
+  await page.getByLabel('Filtrar por status').selectOption('APPROVED');
+  await expect(page.getByText('Mostrando 1–1 de 1 registro')).toBeVisible();
+  await expect(page.getByRole('row', { name: new RegExp(serviceOrder.orderNumber) })).toBeVisible();
+  await page.getByRole('button', { name: 'Limpar filtros' }).click();
+  await expect(page.getByText('Mostrando 1–20 de 22 registros')).toBeVisible();
 });

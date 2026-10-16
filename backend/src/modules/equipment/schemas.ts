@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { pageQueryShape, searchTermSchema } from '../shared/pagination.js';
 
 const optionalText = (max: number) => z.string().trim().max(max).nullable().optional();
 
@@ -20,5 +21,9 @@ export const updateEquipmentSchema = createEquipmentSchema
   .refine((value) => Object.keys(value).length > 0, { message: 'At least one field is required' })
   .strict();
 
+// customerId e validado a parte na rota (formato + pertence a organizacao), mantendo a resposta 400 'Customer not found'.
+export const listEquipmentQuerySchema = z.object({ ...pageQueryShape, q: searchTermSchema });
+
 export type CreateEquipmentInput = z.infer<typeof createEquipmentSchema>;
 export type UpdateEquipmentInput = z.infer<typeof updateEquipmentSchema>;
+export type ListEquipmentQuery = z.infer<typeof listEquipmentQuerySchema> & { customerId?: string };

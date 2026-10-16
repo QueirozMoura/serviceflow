@@ -2,8 +2,10 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { UserRole } from '@prisma/client';
 import type { FastifyInstance } from 'fastify';
 import type { AuthRepository, AuthSessionRecord, AuthUserRecord, CreatedAccount } from '../src/modules/auth/repository.js';
-import type { EquipmentRecord, EquipmentRepository } from '../src/modules/equipment/repository.js';
-import type { CreateEquipmentInput, UpdateEquipmentInput } from '../src/modules/equipment/schemas.js';
+import type { EquipmentOption, EquipmentRecord, EquipmentRepository } from '../src/modules/equipment/repository.js';
+import type { CreateEquipmentInput, ListEquipmentQuery, UpdateEquipmentInput } from '../src/modules/equipment/schemas.js';
+import type { Page } from '../src/modules/shared/pagination.js';
+import { includesText, paginate } from './helpers/paginate.js';
 
 process.env.NODE_ENV = 'test';
 process.env.DATABASE_URL = 'postgresql://test:test@localhost:5432/test';
@@ -74,8 +76,12 @@ class MemoryEquipmentRepository implements EquipmentRepository {
     return record;
   }
 
-  list(organizationId: string, customerId?: string): Promise<EquipmentRecord[]> {
-    return Promise.resolve(this.equipment.filter((item) => item.organizationId === organizationId && (!customerId || item.customerId === customerId)));
+  list(organizationId: string, query: ListEquipmentQuery): Promise<Page<EquipmentRecord>> {
+    return Promise.resolve(paginate(this.equipment.filter((item) => item.organizationId === organizationId && (!query.customerId || item.customerId === query.customerId) && includesText(query.q, item.type, item.brand, item.model, item.serialNumber, item.customer.name)), query));
+  }
+
+  listOptions(organizationId: string, customerId: string): Promise<EquipmentOption[]> {
+    return Promise.resolve(this.equipment.filter((item) => item.organizationId === organizationId && item.customerId === customerId).map(({ id, customerId: owner, type, brand, model, serialNumber }) => ({ id, customerId: owner, type, brand, model, serialNumber })));
   }
 
   findById(organizationId: string, id: string): Promise<EquipmentRecord | null> {

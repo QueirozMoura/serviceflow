@@ -7,7 +7,8 @@ import { authorize, ensurePermission } from '../middlewares/authorize.js';
 import type { AuthRepository } from '../modules/auth/repository.js';
 import { serviceOrderStatusPermission } from '../modules/auth/permissions.js';
 import { PrismaServiceOrderRepository, ServiceOrderInUseError, type ServiceOrderRepository } from '../modules/service-orders/repository.js';
-import { createServiceOrderSchema, serviceOrderStatusQuerySchema, updateServiceOrderSchema, updateServiceOrderStatusSchema } from '../modules/service-orders/schemas.js';
+import { buildPagination } from '../modules/shared/pagination.js';
+import { createServiceOrderSchema, listServiceOrdersQuerySchema, updateServiceOrderSchema, updateServiceOrderStatusSchema } from '../modules/service-orders/schemas.js';
 
 type ServiceOrderRoutesOptions = { authRepository?: AuthRepository; serviceOrderRepository?: ServiceOrderRepository; database?: PrismaClient };
 
@@ -47,14 +48,11 @@ export async function serviceOrderRoutes(app: FastifyInstance, options: ServiceO
 
   app.get('/', { preHandler: [requireAuthentication, authorize('serviceOrders:read')] }, async (request, reply) => {
     if (!request.user) return reply.status(401).send({ statusCode: 401, error: 'Unauthorized', message: 'Authentication required' });
-    const query = request.query as { status?: string; customerId?: string; equipmentId?: string };
-    const parsed = serviceOrderStatusQuerySchema.safeParse({ status: query.status });
+    const parsed = listServiceOrdersQuerySchema.safeParse(request.query);
     if (!parsed.success) return reply.status(400).send({ statusCode: 400, error: 'Bad Request', message: 'Invalid service order filter' });
-    const uuid = /^[0-9a-f-]{36}$/i;
-    if ((query.customerId && !uuid.test(query.customerId)) || (query.equipmentId && !uuid.test(query.equipmentId))) return reply.status(400).send({ statusCode: 400, error: 'Bad Request', message: 'Invalid service order filter' });
 
-    const serviceOrders = await repository.list(request.user.organizationId, { status: parsed.data.status, customerId: query.customerId, equipmentId: query.equipmentId });
-    return reply.send({ serviceOrders });
+    const { items, total } = await repository.list(request.user.organizationId, parsed.data);
+    return reply.send({ serviceOrders: items, pagination: buildPagination(parsed.data, total) });
   });
 
   app.get('/:id', { preHandler: [requireAuthentication, authorize('serviceOrders:read')] }, async (request, reply) => {

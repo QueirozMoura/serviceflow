@@ -1,5 +1,6 @@
 import { ServiceOrderStatus } from '@prisma/client';
 import { z } from 'zod';
+import { pageQueryShape, searchTermSchema } from '../shared/pagination.js';
 
 const optionalText = (max: number) => z.string().trim().max(max).nullable().optional();
 const money = z.union([z.string(), z.number()]).refine((value) => {
@@ -27,7 +28,18 @@ export const updateServiceOrderSchema = createServiceOrderSchema
 
 export const updateServiceOrderStatusSchema = z.object({ status: z.nativeEnum(ServiceOrderStatus) }).strict();
 
-export const serviceOrderStatusQuerySchema = z.object({ status: z.nativeEnum(ServiceOrderStatus).optional() }).strict();
+
+const uuidLike = z.string().regex(/^[0-9a-f-]{36}$/i);
+
+// Somente estes filtros existem; nao ha ordenacao nem campos arbitrarios. Parametros desconhecidos sao descartados.
+export const listServiceOrdersQuerySchema = z.object({
+  ...pageQueryShape,
+  q: searchTermSchema,
+  status: z.nativeEnum(ServiceOrderStatus).optional(),
+  customerId: uuidLike.optional(),
+  equipmentId: uuidLike.optional(),
+});
 
 export type CreateServiceOrderInput = z.infer<typeof createServiceOrderSchema>;
 export type UpdateServiceOrderInput = z.infer<typeof updateServiceOrderSchema>;
+export type ListServiceOrdersQuery = z.infer<typeof listServiceOrdersQuerySchema>;

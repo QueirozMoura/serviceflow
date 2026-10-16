@@ -1,3 +1,4 @@
+import type { PageInfo } from './pagination';
 import type { PaymentMethod, PaymentStatus } from './payment';
 import type { QuoteStatus } from './quote';
 import type { DecimalValue } from './service-order';
@@ -20,3 +21,12 @@ export interface WarrantyOverviewRow {
   serviceOrder: OverviewOrder;
   warranty: { id: string; status: WarrantyStatus; startDate: string; endDate: string; description: string; updatedAt: string };
 }
+
+// Totais dos cartões do topo, calculados no servidor sobre toda a organização (não dependem de busca nem de filtro).
+export interface QuoteSummary { pendingCount: number; approvedTotal: string; totalValue: string; }
+export interface PaymentSummary { paidTotal: string; pendingTotal: string; count: number; }
+export interface WarrantySummary { active: number; expired: number; total: number; }
+
+export interface QuotesOverviewResponse { quotes: QuoteOverviewRow[]; pagination: PageInfo; summary: QuoteSummary; }
+export interface PaymentsOverviewResponse { payments: PaymentOverviewRow[]; pagination: PageInfo; summary: PaymentSummary; }
+export interface WarrantiesOverviewResponse { warranties: WarrantyOverviewRow[]; pagination: PageInfo; summary: WarrantySummary; }

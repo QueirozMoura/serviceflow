@@ -5,7 +5,8 @@ import { authenticate } from '../middlewares/authenticate.js';
 import { authorize } from '../middlewares/authorize.js';
 import type { AuthRepository } from '../modules/auth/repository.js';
 import { EquipmentInUseError, PrismaEquipmentRepository, type EquipmentRepository } from '../modules/equipment/repository.js';
-import { createEquipmentSchema, updateEquipmentSchema } from '../modules/equipment/schemas.js';
+import { createEquipmentSchema, listEquipmentQuerySchema, updateEquipmentSchema } from '../modules/equipment/schemas.js';
+import { buildPagination } from '../modules/shared/pagination.js';
 
 type EquipmentRoutesOptions = {
   authRepository?: AuthRepository;
@@ -42,8 +43,20 @@ export async function equipmentRoutes(app: FastifyInstance, options: EquipmentRo
     if (customerId && !/^[0-9a-f-]{36}$/i.test(customerId)) return invalidCustomer(reply);
     if (customerId && !(await repository.customerBelongsToOrganization(request.user.organizationId, customerId))) return invalidCustomer(reply);
 
-    const equipment = await repository.list(request.user.organizationId, customerId);
-    return reply.send({ equipment });
+    const parsed = listEquipmentQuerySchema.safeParse(request.query);
+    if (!parsed.success) return reply.status(400).send({ statusCode: 400, error: 'Bad Request', message: 'Invalid equipment filter' });
+
+    const { items, total } = await repository.list(request.user.organizationId, { ...parsed.data, customerId });
+    return reply.send({ equipment: items, pagination: buildPagination(parsed.data, total) });
+  });
+
+  // Equipamentos de um cliente para seletores e telas relacionadas; exige customerId, entao e sempre limitado.
+  app.get('/options', { preHandler: [requireAuthentication, authorize('equipment:read')] }, async (request, reply) => {
+    if (!request.user) return reply.status(401).send({ statusCode: 401, error: 'Unauthorized', message: 'Authentication required' });
+    const customerId = (request.query as { customerId?: unknown }).customerId;
+    if (typeof customerId !== 'string' || !/^[0-9a-f-]{36}$/i.test(customerId)) return invalidCustomer(reply);
+    if (!(await repository.customerBelongsToOrganization(request.user.organizationId, customerId))) return invalidCustomer(reply);
+    return reply.send({ equipment: await repository.listOptions(request.user.organizationId, customerId) });
   });
 
   app.get('/:id', { preHandler: [requireAuthentication, authorize('equipment:read')] }, async (request, reply) => {

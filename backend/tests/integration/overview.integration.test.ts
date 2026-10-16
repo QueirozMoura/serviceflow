@@ -119,7 +119,7 @@ describe('aggregated quotes, payments and warranties against a real PostgreSQL d
       expect(betaQuotes).toHaveLength(1);
       expect(betaQuotes[0].serviceOrder.orderNumber).toBe('B-SECRET-1');
       expect(Number(betaQuotes[0].quote.total)).toBe(999.99);
-      expect((await get('/api/quotes', gamma.owner)).json()).toEqual({ quotes: [] });
+      expect((await get('/api/quotes', gamma.owner)).json()).toEqual({ quotes: [], pagination: { page: 1, pageSize: 20, total: 0, totalPages: 0 }, summary: { pendingCount: 0, approvedTotal: '0.00', totalValue: '0.00' } });
     });
   });
 
@@ -151,7 +151,7 @@ describe('aggregated quotes, payments and warranties against a real PostgreSQL d
       const betaPayments = (await get('/api/payments', beta.owner)).json().payments;
       expect(betaPayments).toHaveLength(1);
       expect(Number(betaPayments[0].payments[0].amount)).toBe(777);
-      expect((await get('/api/payments', gamma.owner)).json()).toEqual({ payments: [] });
+      expect((await get('/api/payments', gamma.owner)).json()).toEqual({ payments: [], pagination: { page: 1, pageSize: 20, total: 0, totalPages: 0 }, summary: { paidTotal: '0.00', pendingTotal: '0.00', count: 0 } });
     });
   });
 
@@ -176,7 +176,7 @@ describe('aggregated quotes, payments and warranties against a real PostgreSQL d
       const betaWarranties = (await get('/api/warranties', beta.owner)).json().warranties;
       expect(betaWarranties).toHaveLength(1);
       expect(betaWarranties[0].warranty.description).toBe('Garantia secreta');
-      expect((await get('/api/warranties', gamma.owner)).json()).toEqual({ warranties: [] });
+      expect((await get('/api/warranties', gamma.owner)).json()).toEqual({ warranties: [], pagination: { page: 1, pageSize: 20, total: 0, totalPages: 0 }, summary: { active: 0, expired: 0, total: 0 } });
     });
   });
 
@@ -202,10 +202,13 @@ describe('aggregated quotes, payments and warranties against a real PostgreSQL d
     const after: number[] = [];
     for (const url of urls) after.push(await countQueries(url, alpha.owner));
     expect(after).toEqual(before);
-    for (const count of after) expect(count).toBeLessThanOrEqual(8);
-    expect((await get('/api/quotes', alpha.owner)).json().quotes).toHaveLength(22);
-    expect((await get('/api/payments', alpha.owner)).json().payments).toHaveLength(22);
-    expect((await get('/api/warranties', alpha.owner)).json().warranties).toHaveLength(22);
+    // Inclui a autenticacao, a pagina, a contagem e as agregacoes dos totais; o que importa e nao crescer com as OS.
+    for (const count of after) expect(count).toBeLessThanOrEqual(12);
+    for (const [url, key] of [['/api/quotes', 'quotes'], ['/api/payments', 'payments'], ['/api/warranties', 'warranties']] as const) {
+      const body = (await get(`${url}?pageSize=100`, alpha.owner)).json();
+      expect(body[key]).toHaveLength(22);
+      expect(body.pagination).toEqual({ page: 1, pageSize: 100, total: 22, totalPages: 1 });
+    }
     console.log(`QUERIES per aggregated request (auth included), 5 vs 25 orders: ${urls.map((url, i) => `${url}=${before[i]}->${after[i]}`).join(' ')}`);
   });
 });

@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 import { ApiError } from '../../services/api';
+import { pageInfo, pageOf } from '../../test/paging';
 import type { ServiceOrder } from '../../types/service-order';
 
 const serviceOrderServiceMock = vi.hoisted(() => ({ list: vi.fn(), remove: vi.fn() }));
@@ -28,41 +29,121 @@ async function requestDelete(orderNumber: string) {
   return screen.getByRole('dialog');
 }
 
+const many = (count: number): ServiceOrder[] => Array.from({ length: count }, (_, index) => ({ ...order, id: `order-${index + 1}`, orderNumber: `OS-${String(index + 1).padStart(3, '0')}`, status: index % 2 ? 'DELIVERED' : 'RECEIVED' }));
+function serve(all: ServiceOrder[]) {
+  serviceOrderServiceMock.list.mockImplementation(async (params: { page: number; pageSize: number; q?: string; status?: string }) => {
+    const matches = all.filter((item) => (!params.status || item.status === params.status) && (!params.q || item.orderNumber.toLowerCase().includes(params.q.toLowerCase()) || item.customer.name.toLowerCase().includes(params.q.toLowerCase())));
+    const { items, pagination } = pageOf(matches, params);
+    return { serviceOrders: items, pagination };
+  });
+}
+const lastCall = () => serviceOrderServiceMock.list.mock.calls.at(-1)?.[0];
+const typeSearch = (value: string) => fireEvent.change(screen.getByLabelText('Buscar OS, cliente ou equipamento'), { target: { value } });
+
 describe('ServiceOrderList', () => {
   beforeEach(() => {
     authMock.denied.clear();
     vi.clearAllMocks();
-    serviceOrderServiceMock.list.mockResolvedValue({ serviceOrders: [order] });
+    serviceOrderServiceMock.remove.mockResolvedValue(undefined);
+    serve([order]);
   });
 
   it('shows loading and the loaded order', async () => {
-    let resolveList: (value: { serviceOrders: ServiceOrder[] }) => void = () => undefined;
+    let resolveList: (value: unknown) => void = () => undefined;
     serviceOrderServiceMock.list.mockReturnValue(new Promise((resolve) => { resolveList = resolve; }));
     renderPage();
 
     expect(screen.getByRole('status').textContent).toContain('Carregando ordens');
-    await act(async () => { resolveList({ serviceOrders: [order] }); });
+    await act(async () => { resolveList({ serviceOrders: [order], pagination: pageInfo(1, 1) }); });
     expect((await screen.findAllByText('OS-1')).length).toBeGreaterThan(0);
+    expect(lastCall()).toEqual({ page: 1, pageSize: 20, q: '', status: undefined });
   });
 
   it('shows the empty state and create action', async () => {
-    serviceOrderServiceMock.list.mockResolvedValue({ serviceOrders: [] });
+    serve([]);
     renderPage();
 
     expect(await screen.findByText('Nenhuma ordem de serviço encontrada')).toBeTruthy();
     expect(screen.getAllByRole('link', { name: /Criar primeira OS|Nova OS/ }).length).toBeGreaterThan(0);
+    expect(screen.queryByRole('navigation', { name: 'Paginação' })).toBeNull();
   });
 
-  it('shows API errors and sends the selected status filter', async () => {
-    serviceOrderServiceMock.list.mockRejectedValueOnce(new Error('network failure')).mockResolvedValue({ serviceOrders: [order] });
+  it('shows API errors with a retry that loads again', async () => {
+    serviceOrderServiceMock.list.mockRejectedValueOnce(new Error('network failure'));
     renderPage();
     expect((await screen.findByRole('alert')).textContent).toContain('Não foi possível carregar as ordens');
 
     fireEvent.click(screen.getByRole('button', { name: 'Tentar novamente' }));
     await screen.findAllByText('OS-1');
-    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'RECEIVED' } });
-    await waitFor(() => expect(serviceOrderServiceMock.list).toHaveBeenLastCalledWith('RECEIVED'));
+    expect(serviceOrderServiceMock.list).toHaveBeenCalledTimes(2);
   });
+
+  it('explains an expired session', async () => {
+    serviceOrderServiceMock.list.mockRejectedValueOnce(new ApiError('Authentication required', 401));
+    renderPage();
+    expect((await screen.findByRole('alert')).textContent).toContain('Sua sessão expirou');
+  });
+
+  describe('pagination and filters', () => {
+    it('shows the range and totals sent by the server and pages on the server', async () => {
+      serve(many(45));
+      renderPage();
+
+      await screen.findAllByText('OS-001');
+      expect(screen.getByText('45 ordens')).toBeTruthy();
+      expect(screen.getByText('Mostrando 1–20 de 45 ordens')).toBeTruthy();
+      expect(screen.getByText('Página 1 de 3')).toBeTruthy();
+      expect((screen.getByRole('button', { name: /Anterior/ }) as HTMLButtonElement).disabled).toBe(true);
+
+      fireEvent.click(screen.getByRole('button', { name: /Próxima/ }));
+      expect((await screen.findAllByText('OS-021')).length).toBeGreaterThan(0);
+      expect(lastCall()).toEqual({ page: 2, pageSize: 20, q: '', status: undefined });
+      expect(screen.queryByText('OS-001')).toBeNull();
+      expect(screen.getByText('Mostrando 21–40 de 45 ordens')).toBeTruthy();
+    });
+
+    it('sends the selected status to the server, returning to the first page', async () => {
+      serve(many(45));
+      renderPage();
+      await screen.findAllByText('OS-001');
+      fireEvent.click(screen.getByRole('button', { name: /Próxima/ }));
+      await screen.findAllByText('OS-021');
+
+      fireEvent.change(screen.getByLabelText('Filtrar por status'), { target: { value: 'DELIVERED' } });
+
+      await waitFor(() => expect(lastCall()).toEqual({ page: 1, pageSize: 20, q: '', status: 'DELIVERED' }));
+      expect(await screen.findByText('22 ordens')).toBeTruthy();
+      expect(screen.getByText('Página 1 de 2')).toBeTruthy();
+    });
+
+    it('combines search and status, and clears both at once', async () => {
+      serve(many(45));
+      renderPage();
+      await screen.findAllByText('OS-001');
+
+      typeSearch('os-00');
+      fireEvent.change(screen.getByLabelText('Filtrar por status'), { target: { value: 'RECEIVED' } });
+      await waitFor(() => expect(lastCall()).toEqual({ page: 1, pageSize: 20, q: 'os-00', status: 'RECEIVED' }), { timeout: 2000 });
+      expect(await screen.findByText('5 ordens')).toBeTruthy();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Limpar filtros' }));
+      expect(await screen.findByText('45 ordens')).toBeTruthy();
+      expect(lastCall()).toEqual({ page: 1, pageSize: 20, q: '', status: undefined });
+      expect((screen.getByLabelText('Filtrar por status') as HTMLSelectElement).value).toBe('');
+    });
+
+    it('shows a no-results message when the filters match nothing', async () => {
+      serve(many(5));
+      renderPage();
+      await screen.findAllByText('OS-001');
+
+      typeSearch('inexistente');
+      expect(await screen.findByText('Nenhuma OS encontrada para essa busca.', {}, { timeout: 2000 })).toBeTruthy();
+      expect(screen.getByText('0 ordens')).toBeTruthy();
+      expect(screen.getByRole('button', { name: 'Limpar filtros' })).toBeTruthy();
+    });
+  });
+
   it('shows the message sent by the details page after a deletion', async () => {
     renderPage({ message: 'OS-9 excluída.' });
     expect(await screen.findByText('OS-9 excluída.')).toBeTruthy();
@@ -80,19 +161,20 @@ describe('ServiceOrderList', () => {
     expect(screen.getAllByText('OS-1').length).toBeGreaterThan(0);
   });
 
-  it('removes only the deleted order after a successful deletion', async () => {
-    serviceOrderServiceMock.list.mockResolvedValue({ serviceOrders: [order, secondOrder] });
-    serviceOrderServiceMock.remove.mockResolvedValue(undefined);
+  it('reloads the page from the server after a successful deletion, showing only the remaining order', async () => {
+    serve([order, secondOrder]);
     renderPage();
     const dialog = await requestDelete('OS-1');
+    serve([secondOrder]);
     fireEvent.click(within(dialog).getByRole('button', { name: 'Excluir' }));
 
     expect(await screen.findByText('OS-1 excluída.')).toBeTruthy();
     expect(serviceOrderServiceMock.remove).toHaveBeenCalledWith('order-1');
-    expect(screen.queryByRole('link', { name: 'OS-1' })).toBeNull();
+    await waitFor(() => expect(screen.queryByRole('link', { name: 'OS-1' })).toBeNull());
     expect(screen.getAllByText('OS-2').length).toBeGreaterThan(0);
     expect(screen.getByText('1 ordem')).toBeTruthy();
     expect(screen.queryByRole('dialog')).toBeNull();
+    expect(serviceOrderServiceMock.list).toHaveBeenCalledTimes(2);
   });
 
   it('blocks duplicate deletions while the request is pending', async () => {
@@ -127,13 +209,15 @@ describe('ServiceOrderList', () => {
     expect(serviceOrderServiceMock.list).toHaveBeenCalledTimes(1);
   });
 
-  it('drops an order that no longer exists on the server', async () => {
+  it('refreshes the list when the order no longer exists on the server', async () => {
     serviceOrderServiceMock.remove.mockRejectedValue(new ApiError('Service order not found', 404));
     renderPage();
     const dialog = await requestDelete('OS-1');
+    serve([]);
     fireEvent.click(within(dialog).getByRole('button', { name: 'Excluir' }));
 
     expect(await screen.findByText(/não foi encontrada/)).toBeTruthy();
+    expect(await screen.findByText('Nenhuma ordem de serviço encontrada')).toBeTruthy();
     expect(screen.queryByRole('link', { name: 'OS-1' })).toBeNull();
   });
 

@@ -1,8 +1,11 @@
 import { api } from './api';
+import type { PageParams } from '../types/pagination';
+import { buildQuery } from '../utils/query';
 import type { DiagnosisResponse, MessageChannel, MessageHistoryResponse, MessageResponse, RecordedMessageResponse, ServiceOrderInput, ServiceOrderResponse, ServiceOrderStatus, ServiceOrderUpdate, ServiceOrdersResponse, MessageType } from '../types/service-order';
 
 export const serviceOrdersService = {
-  list: (status?: ServiceOrderStatus) => api.get<ServiceOrdersResponse>(`/api/service-orders${status ? `?status=${status}` : ''}`),
+  /** Lista paginada pelo servidor, com busca (nº da OS, cliente, equipamento) e filtro por status. */
+  list: ({ page, pageSize, q, status }: PageParams & { status?: ServiceOrderStatus }) => api.get<ServiceOrdersResponse>(`/api/service-orders${buildQuery({ page, pageSize, q, status })}`),
   get: (id: string) => api.get<ServiceOrderResponse>(`/api/service-orders/${id}`),
   create: (input: ServiceOrderInput) => api.post<ServiceOrderResponse>('/api/service-orders', input),
   update: (id: string, input: ServiceOrderUpdate) => api.patch<ServiceOrderResponse>(`/api/service-orders/${id}`, input),

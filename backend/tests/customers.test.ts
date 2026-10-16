@@ -7,8 +7,10 @@ import type {
   AuthUserRecord,
   CreatedAccount,
 } from '../src/modules/auth/repository.js';
-import type { CustomerRecord, CustomerRepository } from '../src/modules/customers/repository.js';
-import type { CreateCustomerInput, UpdateCustomerInput } from '../src/modules/customers/schemas.js';
+import type { CustomerOption, CustomerRecord, CustomerRepository } from '../src/modules/customers/repository.js';
+import type { CreateCustomerInput, ListCustomersQuery, UpdateCustomerInput } from '../src/modules/customers/schemas.js';
+import type { Page } from '../src/modules/shared/pagination.js';
+import { includesText, paginate } from './helpers/paginate.js';
 
 process.env.NODE_ENV = 'test';
 process.env.DATABASE_URL = 'postgresql://test:test@localhost:5432/test';
@@ -92,8 +94,12 @@ class MemoryCustomerRepository implements CustomerRepository {
     return customer;
   }
 
-  list(organizationId: string): Promise<CustomerRecord[]> {
-    return Promise.resolve(this.customers.filter((customer) => customer.organizationId === organizationId));
+  list(organizationId: string, query: ListCustomersQuery): Promise<Page<CustomerRecord>> {
+    return Promise.resolve(paginate(this.customers.filter((customer) => customer.organizationId === organizationId && includesText(query.q, customer.name, customer.phone, customer.email, customer.document)), query));
+  }
+
+  listOptions(organizationId: string): Promise<CustomerOption[]> {
+    return Promise.resolve(this.customers.filter((customer) => customer.organizationId === organizationId).map(({ id, name, phone }) => ({ id, name, phone })));
   }
 
   findById(organizationId: string, id: string): Promise<CustomerRecord | null> {

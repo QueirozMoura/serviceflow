@@ -1,3 +1,5 @@
+import type { PageInfo } from './pagination';
+
 export interface Customer {
   id: string;
   organizationId: string;
@@ -12,5 +14,8 @@ export interface Customer {
 }
 
 export type CustomerInput = Omit<Pick<Customer, 'name' | 'email' | 'phone' | 'document' | 'address' | 'notes'>, never>;
-export interface CustomersResponse { customers: Customer[]; }
+export interface CustomersResponse { customers: Customer[]; pagination: PageInfo; }
+/** Opções enxutas e completas para seletores de formulário (sem paginação). */
+export type CustomerOption = Pick<Customer, 'id' | 'name' | 'phone'>;
+export interface CustomerOptionsResponse { customers: CustomerOption[]; }
 export interface CustomerResponse { customer: Customer; }

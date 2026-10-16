@@ -4,8 +4,8 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import type { Customer } from '../../types/customer';
 import type { Equipment } from '../../types/equipment';
 
-const equipmentServiceMock = vi.hoisted(() => ({ list: vi.fn(), get: vi.fn(), create: vi.fn(), update: vi.fn() }));
-const customerServiceMock = vi.hoisted(() => ({ list: vi.fn() }));
+const equipmentServiceMock = vi.hoisted(() => ({ list: vi.fn(), options: vi.fn(), get: vi.fn(), create: vi.fn(), update: vi.fn() }));
+const customerServiceMock = vi.hoisted(() => ({ list: vi.fn(), options: vi.fn() }));
 vi.mock('../../services/equipment', () => ({ equipmentService: equipmentServiceMock }));
 vi.mock('../../services/customers', () => ({ customersService: customerServiceMock }));
 
@@ -27,7 +27,7 @@ function renderPage(path = '/equipment/new') {
 describe('EquipmentForm', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    customerServiceMock.list.mockResolvedValue({ customers: [customer] });
+    customerServiceMock.options.mockResolvedValue({ customers: [{ id: customer.id, name: customer.name, phone: customer.phone }] });
     equipmentServiceMock.list.mockResolvedValue({ equipment: [] });
     equipmentServiceMock.create.mockResolvedValue({ equipment });
     equipmentServiceMock.update.mockResolvedValue({ equipment });
@@ -54,7 +54,7 @@ describe('EquipmentForm', () => {
   });
 
   it('loads and updates an existing equipment record', async () => {
-    customerServiceMock.list.mockResolvedValue({ customers: [customer] });
+    customerServiceMock.options.mockResolvedValue({ customers: [{ id: customer.id, name: customer.name, phone: customer.phone }] });
     equipmentServiceMock.get.mockResolvedValue({ equipment });
     equipmentServiceMock.list.mockResolvedValue({ equipment });
     renderPage('/equipment/equipment-1/edit');
@@ -64,5 +64,13 @@ describe('EquipmentForm', () => {
     fireEvent.submit(screen.getByRole('button', { name: 'Salvar equipamento' }).closest('form')!);
 
     await waitFor(() => expect(equipmentServiceMock.update).toHaveBeenCalledWith('equipment-1', expect.objectContaining({ customerId: 'customer-1', model: 'Latitude' })));
+  });
+
+  it('fills the customer selector from the complete options list and never from the paginated list', async () => {
+    renderPage();
+    expect(await screen.findByRole('option', { name: /Alice Silva/ })).toBeTruthy();
+
+    expect(customerServiceMock.options).toHaveBeenCalledTimes(1);
+    expect(customerServiceMock.list).not.toHaveBeenCalled();
   });
 });

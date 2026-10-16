@@ -1,10 +1,12 @@
 import { api } from './api';
-import type { QuoteOverviewRow } from '../types/overview';
+import type { QuotesOverviewResponse } from '../types/overview';
+import type { PageParams } from '../types/pagination';
+import { buildQuery } from '../utils/query';
 import type { CreateQuoteInput, QuoteResponse, QuoteStatus, ServiceItemInput, UpdateQuoteInput } from '../types/quote';
 
 export const quotesService = {
-  /** Lista agregada (uma requisição) usada pela tela de Orçamentos. */
-  listOverview: () => api.get<{ quotes: QuoteOverviewRow[] }>('/api/quotes'),
+  /** Lista agregada e paginada (uma requisição por página) usada pela tela de Orçamentos. */
+  listOverview: ({ page, pageSize, q, status }: PageParams & { status?: QuoteStatus }) => api.get<QuotesOverviewResponse>(`/api/quotes${buildQuery({ page, pageSize, q, status })}`),
   create: (serviceOrderId: string, input: CreateQuoteInput = {}) => api.post<QuoteResponse>(`/api/service-orders/${serviceOrderId}/quote`, input),
   get: (serviceOrderId: string) => api.get<QuoteResponse>(`/api/service-orders/${serviceOrderId}/quote`),
   update: (serviceOrderId: string, input: UpdateQuoteInput) => api.patch<QuoteResponse>(`/api/service-orders/${serviceOrderId}/quote`, input),

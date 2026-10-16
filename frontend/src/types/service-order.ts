@@ -1,3 +1,5 @@
+import type { PageInfo } from './pagination';
+
 export type ServiceOrderStatus = 'RECEIVED' | 'WAITING_DIAGNOSIS' | 'WAITING_APPROVAL' | 'APPROVED' | 'IN_PROGRESS' | 'READY' | 'DELIVERED' | 'CANCELLED';
 export type MessageType = 'SERVICE_RECEIVED' | 'DIAGNOSIS_READY' | 'QUOTE_READY' | 'QUOTE_APPROVED' | 'SERVICE_IN_PROGRESS' | 'SERVICE_READY' | 'SERVICE_DELIVERED' | 'WARRANTY_CREATED';
 export type DecimalValue = string | number;
@@ -30,7 +32,7 @@ export interface ServiceOrderInput {
   finalValue?: string | null;
 }
 export type ServiceOrderUpdate = Partial<ServiceOrderInput>;
-export interface ServiceOrdersResponse { serviceOrders: ServiceOrder[]; }
+export interface ServiceOrdersResponse { serviceOrders: ServiceOrder[]; pagination: PageInfo; }
 export interface ServiceOrderResponse { serviceOrder: ServiceOrder; }
 
 export interface Diagnosis { id: string; serviceOrderId: string; description: string; estimatedCost?: DecimalValue | null; createdAt: string; updatedAt: string; }

@@ -1,13 +1,17 @@
-import { useCallback, useEffect, useState } from 'react';
-import { ArrowRight, BadgeDollarSign, CheckCircle2, Clock3, FileText, Search, ShieldCheck, WalletCards } from 'lucide-react';
+import { ArrowRight, BadgeDollarSign, CheckCircle2, Clock3, FileText, Search, ShieldCheck, WalletCards, X } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { ApiError } from '../../services/api';
 import { paymentsService } from '../../services/payments';
 import { quotesService } from '../../services/quotes';
 import { warrantiesService } from '../../services/warranties';
-import type { OverviewOrder, PaymentOverviewRow, QuoteOverviewRow, WarrantyOverviewRow } from '../../types/overview';
+import { usePagedList, type PagedResult } from '../../hooks/usePagedList';
+import type { OverviewOrder, PaymentOverviewRow, PaymentSummary, QuoteOverviewRow, QuoteSummary, WarrantyOverviewRow, WarrantySummary } from '../../types/overview';
+import type { PaymentStatus } from '../../types/payment';
+import type { QuoteStatus } from '../../types/quote';
+import type { WarrantyStatus } from '../../types/warranty';
 import { Badge } from '../../components/ui/Badge';
 import { Card } from '../../components/ui/Card';
+import { Pagination } from '../../components/ui/Pagination';
 import { EmptyState } from '../../components/ui/ResourceStates';
 import { ErrorState, Loading } from '../../components/ui/Feedback';
 
@@ -34,67 +38,68 @@ const statusOptions: Record<Module, Array<{ value: StatusFilter; label: string }
   warranties: [{ value: 'ALL', label: 'Todos os status' }, { value: 'ACTIVE', label: 'Ativas' }, { value: 'EXPIRED', label: 'Expiradas' }, { value: 'CANCELLED', label: 'Canceladas' }],
 };
 
-// Uma única requisição agregada por tela (antes: lista de OS + uma chamada por OS).
-async function loadRecords(module: Module): Promise<ModuleRecord[]> {
-  if (module === 'quotes') return (await quotesService.listOverview()).quotes.map(({ serviceOrder, quote }) => ({ order: serviceOrder, quote }));
-  if (module === 'warranties') return (await warrantiesService.listOverview()).warranties.map(({ serviceOrder, warranty }) => ({ order: serviceOrder, warranty }));
-  return (await paymentsService.listOverview()).payments.map(({ serviceOrder, payments }) => ({ order: serviceOrder, payments }));
+// Uma requisição por página (antes: lista de todas as OS + uma chamada por OS). A paginação, a busca e o filtro de
+// status são feitos no servidor; os totais dos cartões também vêm dele (calculados sobre toda a organização).
+type Summary = QuoteSummary | PaymentSummary | WarrantySummary;
+type Filters = { status: string };
+const initialFilters: Filters = { status: 'ALL' };
+
+async function fetchModule(module: Module, { page, pageSize, q, filters }: { page: number; pageSize: number; q: string; filters: Filters }): Promise<PagedResult<ModuleRecord, Summary>> {
+  const status = filters.status === 'ALL' ? undefined : filters.status;
+  if (module === 'quotes') {
+    const response = await quotesService.listOverview({ page, pageSize, q, status: status as QuoteStatus | undefined });
+    return { items: response.quotes.map(({ serviceOrder, quote }) => ({ order: serviceOrder, quote })), pagination: response.pagination, summary: response.summary };
+  }
+  if (module === 'warranties') {
+    const response = await warrantiesService.listOverview({ page, pageSize, q, status: status as WarrantyStatus | undefined });
+    return { items: response.warranties.map(({ serviceOrder, warranty }) => ({ order: serviceOrder, warranty })), pagination: response.pagination, summary: response.summary };
+  }
+  const response = await paymentsService.listOverview({ page, pageSize, q, status: status as PaymentStatus | undefined });
+  return { items: response.payments.map(({ serviceOrder, payments }) => ({ order: serviceOrder, payments })), pagination: response.pagination, summary: response.summary };
 }
+
+type Metric = { label: string; value: string | undefined; kind: 'money' | 'count' };
+function buildMetrics(module: Module, summary: Summary | undefined): [Metric, Metric, Metric] {
+  if (module === 'quotes') {
+    const data = summary as QuoteSummary | undefined;
+    return [{ label: 'Aguardando aprovação', value: data && String(data.pendingCount), kind: 'count' }, { label: 'Valor aprovado', value: data?.approvedTotal, kind: 'money' }, { label: 'Valor total em orçamentos', value: data?.totalValue, kind: 'money' }];
+  }
+  if (module === 'payments') {
+    const data = summary as PaymentSummary | undefined;
+    // "Recebido" soma somente pagamentos pagos; pendentes aparecem a parte e falhos/cancelados/estornados ficam de fora.
+    return [{ label: 'Recebido', value: data?.paidTotal, kind: 'money' }, { label: 'Pendente', value: data?.pendingTotal, kind: 'money' }, { label: 'Lançamentos registrados', value: data && String(data.count), kind: 'count' }];
+  }
+  const data = summary as WarrantySummary | undefined;
+  return [{ label: 'Garantias ativas', value: data && String(data.active), kind: 'count' }, { label: 'Garantias expiradas', value: data && String(data.expired), kind: 'count' }, { label: 'Total de garantias', value: data && String(data.total), kind: 'count' }];
+}
+const formatMetric = ({ value, kind }: Metric) => (value === undefined ? '—' : kind === 'money' ? money(value) : Number(value).toLocaleString('pt-BR'));
 
 export function ModuleList({ module }: { module: Module }) {
   const page = config[module];
-  const [records, setRecords] = useState<ModuleRecord[]>([]);
-  const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL');
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError('');
-    try {
-      setRecords(await loadRecords(module));
-    } catch (cause) {
-      setError(cause instanceof ApiError && cause.status === 401 ? 'Sua sessão expirou. Entre novamente.' : cause instanceof ApiError && cause.status === 403 ? 'Você não tem permissão para acessar esta página.' : `Não foi possível carregar ${page.title.toLocaleLowerCase()}.`);
-    } finally {
-      setLoading(false);
-    }
-  }, [module, page.title]);
-
-  useEffect(() => { void load(); }, [load]);
-
-  const normalized = search.toLocaleLowerCase();
-  const matchesStatus = (record: ModuleRecord) => {
-    if (statusFilter === 'ALL') return true;
-    if (module === 'quotes') return record.quote?.status === statusFilter;
-    if (module === 'warranties') return record.warranty?.status === statusFilter;
-    return record.payments?.some((payment) => payment.status === statusFilter) ?? false;
-  };
-  const filtered = records.filter(({ order }) => [order.orderNumber, order.customer.name].some((value) => value.toLocaleLowerCase().includes(normalized))).filter(matchesStatus);
-  const summary = module === 'quotes'
-    ? { primary: records.filter((record) => record.quote?.status === 'PENDING').length, primaryLabel: 'Aguardando aprovação', secondary: records.filter((record) => record.quote?.status === 'APPROVED').reduce((total, record) => total + Number(record.quote?.total ?? 0), 0), secondaryLabel: 'Valor aprovado', tertiary: records.reduce((total, record) => total + Number(record.quote?.total ?? 0), 0), tertiaryLabel: 'Valor total em orçamentos' }
-    : module === 'payments'
-      ? { primary: records.reduce((total, record) => total + (record.payments?.filter((payment) => payment.status === 'PAID').reduce((sum, payment) => sum + Number(payment.amount), 0) ?? 0), 0), primaryLabel: 'Recebido', secondary: records.reduce((total, record) => total + (record.payments?.filter((payment) => payment.status === 'PENDING').reduce((sum, payment) => sum + Number(payment.amount), 0) ?? 0), 0), secondaryLabel: 'Pendente', tertiary: records.reduce((total, record) => total + (record.payments?.length ?? 0), 0), tertiaryLabel: 'Lançamentos registrados' }
-      : { primary: records.filter((record) => record.warranty?.status === 'ACTIVE').length, primaryLabel: 'Garantias ativas', secondary: records.filter((record) => record.warranty?.status === 'EXPIRED').length, secondaryLabel: 'Garantias expiradas', tertiary: records.length, tertiaryLabel: 'Total de garantias' };
+  const list = usePagedList<ModuleRecord, Summary, Filters>({ fetchPage: (params) => fetchModule(module, params), initialFilters });
+  const total = list.pagination?.total ?? 0;
+  const error = list.error instanceof ApiError && list.error.status === 401 ? 'Sua sessão expirou. Entre novamente.' : list.error instanceof ApiError && list.error.status === 403 ? 'Você não tem permissão para acessar esta página.' : `Não foi possível carregar ${page.title.toLocaleLowerCase()}.`;
+  const [first, second, third] = buildMetrics(module, list.summary);
   const Icon = module === 'quotes' ? FileText : module === 'payments' ? BadgeDollarSign : ShieldCheck;
-  const formatSummary = (value: number, label: string) => label.includes('Valor') || label === 'Recebido' || label === 'Pendente' ? money(value) : value.toLocaleString('pt-BR');
 
   return <div className="resource-page">
     <div className="page-intro financial-page-intro"><div><p className="eyebrow">{page.eyebrow}</p><h2>{page.title}</h2><p className="muted">{page.description}</p></div><Link className="button button-secondary button-small" to="/service-orders"><ArrowRight size={15} /> Ver ordens de serviço</Link></div>
     <div className={`financial-metrics financial-metrics-${module}`}>
-      <Card className="financial-metric"><div className="metric-icon metric-icon-blue"><Icon size={18} /></div><div><p>{summary.primaryLabel}</p><strong>{formatSummary(summary.primary, summary.primaryLabel)}</strong></div></Card>
-      <Card className="financial-metric"><div className="metric-icon metric-icon-amber"><Clock3 size={18} /></div><div><p>{summary.secondaryLabel}</p><strong>{formatSummary(summary.secondary, summary.secondaryLabel)}</strong></div></Card>
-      <Card className="financial-metric"><div className="metric-icon metric-icon-teal"><CheckCircle2 size={18} /></div><div><p>{summary.tertiaryLabel}</p><strong>{formatSummary(summary.tertiary, summary.tertiaryLabel)}</strong></div></Card>
+      <Card className="financial-metric"><div className="metric-icon metric-icon-blue"><Icon size={18} /></div><div><p>{first.label}</p><strong>{formatMetric(first)}</strong></div></Card>
+      <Card className="financial-metric"><div className="metric-icon metric-icon-amber"><Clock3 size={18} /></div><div><p>{second.label}</p><strong>{formatMetric(second)}</strong></div></Card>
+      <Card className="financial-metric"><div className="metric-icon metric-icon-teal"><CheckCircle2 size={18} /></div><div><p>{third.label}</p><strong>{formatMetric(third)}</strong></div></Card>
     </div>
+    {list.hasActiveFilters ? <p className="financial-summary-note muted" role="note">Os totais acima consideram todos os registros, sem a busca e os filtros aplicados.</p> : null}
     <Card className="resource-card">
-      <div className="resource-toolbar financial-toolbar"><label className="search-input"><Search size={16} aria-hidden="true" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por OS ou cliente" aria-label={`Buscar ${page.title.toLocaleLowerCase()}`} /></label><label className="filter-select"><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} aria-label="Filtrar por status">{statusOptions[module].map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></label><span className="result-count">{filtered.length} {filtered.length === 1 ? 'registro' : 'registros'}</span></div>
-      {loading ? <Loading message={`Carregando ${page.title.toLocaleLowerCase()}...`} /> : error ? <ErrorState message={error} actionLabel="Tentar novamente" onAction={() => void load()} /> : records.length === 0 ? <EmptyState title={page.empty} message="Os registros aparecerão aqui quando forem vinculados a uma ordem de serviço." actionLabel="Ver ordens de serviço" to="/service-orders" /> : filtered.length === 0 ? <div className="inline-empty"><Search size={20} /><p>Nenhum registro encontrado para essa busca.</p></div> : <div className="table-wrap"><table className="resource-table financial-table"><thead><tr><th>OS</th><th>Cliente</th><th>Informações</th><th>Status</th><th>Atualização</th><th>Ação</th></tr></thead><tbody>{filtered.map((record) => {
+      <div className="resource-toolbar financial-toolbar"><label className="search-input"><Search size={16} aria-hidden="true" /><input value={list.search} onChange={(event) => list.setSearch(event.target.value)} placeholder="Buscar por OS ou cliente" aria-label={`Buscar ${page.title.toLocaleLowerCase()}`} /></label><label className="filter-select"><select value={list.filters.status} onChange={(event) => list.setFilter('status', event.target.value)} aria-label="Filtrar por status">{statusOptions[module].map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></label><span className="result-count">{total} {total === 1 ? 'registro' : 'registros'}</span>{list.hasActiveFilters ? <button className="button button-secondary button-small filters-clear" type="button" onClick={list.clearFilters}><X size={14} aria-hidden="true" /> Limpar filtros</button> : null}</div>
+      {list.loading ? <Loading message={`Carregando ${page.title.toLocaleLowerCase()}...`} /> : list.error ? <ErrorState message={error} actionLabel="Tentar novamente" onAction={list.reload} /> : total === 0 && !list.hasActiveFilters ? <EmptyState title={page.empty} message="Os registros aparecerão aqui quando forem vinculados a uma ordem de serviço." actionLabel="Ver ordens de serviço" to="/service-orders" /> : list.items.length === 0 ? <div className="inline-empty"><Search size={20} /><p>Nenhum registro encontrado para essa busca.</p></div> : <div className="table-wrap"><table className="resource-table financial-table"><thead><tr><th>OS</th><th>Cliente</th><th>Informações</th><th>Status</th><th>Atualização</th><th>Ação</th></tr></thead><tbody>{list.items.map((record) => {
         const data = module === 'quotes' ? record.quote : module === 'payments' ? record.payments?.[0] : record.warranty;
         const status = module === 'quotes' ? record.quote?.status : module === 'payments' ? (record.payments?.length === 1 ? record.payments[0].status : `${record.payments?.length} pagamentos`) : record.warranty?.status;
         return <tr key={record.order.id}><td><Link className="resource-name financial-order-link" to={`/service-orders/${record.order.id}`}>{record.order.orderNumber}<small>Ver detalhes da OS <ArrowRight size={12} /></small></Link></td><td>{record.order.customer.name}</td><td>{module === 'quotes' && record.quote ? <><strong className="financial-value">{money(record.quote.total)}</strong><small className="table-subtext">{record.quote.itemsCount} {record.quote.itemsCount === 1 ? 'item' : 'itens'}</small></> : module === 'payments' ? <><strong className="financial-value">{money(record.payments?.reduce((total, payment) => total + Number(payment.amount), 0) ?? 0)}</strong><small className="table-subtext">{record.payments?.length === 1 ? methodLabels[record.payments[0].method] : `${record.payments?.length} lançamentos`}</small></> : record.warranty ? <><span className="warranty-period">{date(record.warranty.startDate)} a {date(record.warranty.endDate)}</span><small className="table-subtext">{record.warranty.description}</small></> : null}</td><td>{typeof status === 'string' && status in statusLabels ? <Badge value={status} /> : <span className="muted">{status}</span>}</td><td>{module === 'quotes' && record.quote ? date(record.quote.updatedAt) : module === 'payments' && data ? date((data as { updatedAt: string }).updatedAt) : record.warranty ? date(record.warranty.updatedAt) : '-'}</td><td><Link className="table-action" to={`/service-orders/${record.order.id}`} aria-label={`Abrir ${record.order.orderNumber}`}><ArrowRight size={16} /></Link></td></tr>;
       })}</tbody></table></div>}
+      {!list.error && list.pagination && list.pagination.total > 0 ? <Pagination pagination={list.pagination} shown={list.items.length} noun={['registro', 'registros']} loading={list.loading} onPageChange={list.setPage} /> : null}
     </Card>
-    {!loading && !error && records.length > 0 ? <p className="financial-list-note"><WalletCards size={15} /> Cadastros, edições e alterações de status são realizados na ordem de serviço correspondente.</p> : null}
+    {!list.loading && !list.error && total > 0 ? <p className="financial-list-note"><WalletCards size={15} /> Cadastros, edições e alterações de status são realizados na ordem de serviço correspondente.</p> : null}
   </div>;
 }
 

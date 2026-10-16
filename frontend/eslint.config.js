@@ -5,7 +5,8 @@ import reactRefresh from 'eslint-plugin-react-refresh';
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
-  { ignores: ['dist', 'node_modules'] },
+  // playwright-report e test-results sao gerados pelo Playwright (inclusive bundles minificados); nao sao codigo-fonte.
+  { ignores: ['dist', 'node_modules', 'playwright-report', 'test-results'] },
   eslint.configs.recommended,
   ...tseslint.configs.recommended,
   prettier,

@@ -1,6 +1,7 @@
 import { Prisma, ServiceOrderStatus, type PrismaClient, type ServiceOrder } from '@prisma/client';
 import { randomBytes } from 'node:crypto';
-import type { CreateServiceOrderInput, UpdateServiceOrderInput } from './schemas.js';
+import { containsInsensitive, newestFirst, skipTake, type Page } from '../shared/pagination.js';
+import type { CreateServiceOrderInput, ListServiceOrdersQuery, UpdateServiceOrderInput } from './schemas.js';
 
 export type ServiceOrderRecord = Pick<
   ServiceOrder,
@@ -13,7 +14,7 @@ export type ServiceOrderRecord = Pick<
 export interface ServiceOrderRepository {
   referencesBelongToOrganization(organizationId: string, customerId: string, equipmentId: string): Promise<boolean>;
   create(organizationId: string, changedByUserId: string, input: CreateServiceOrderInput): Promise<ServiceOrderRecord>;
-  list(organizationId: string, filters: { status?: ServiceOrderStatus; customerId?: string; equipmentId?: string }): Promise<ServiceOrderRecord[]>;
+  list(organizationId: string, query: ListServiceOrdersQuery): Promise<Page<ServiceOrderRecord>>;
   findById(organizationId: string, id: string): Promise<ServiceOrderRecord | null>;
   update(organizationId: string, id: string, input: UpdateServiceOrderInput): Promise<ServiceOrderRecord | null>;
   updateStatus(organizationId: string, id: string, changedByUserId: string, status: ServiceOrderStatus): Promise<ServiceOrderRecord | null>;
@@ -78,8 +79,20 @@ export class PrismaServiceOrderRepository implements ServiceOrderRepository {
     throw new Error('Unable to generate service order number');
   }
 
-  list(organizationId: string, filters: { status?: ServiceOrderStatus; customerId?: string; equipmentId?: string }): Promise<ServiceOrderRecord[]> {
-    return this.db.serviceOrder.findMany({ where: { organizationId, ...filters }, include: orderInclude, orderBy: { createdAt: 'desc' } });
+  async list(organizationId: string, query: ListServiceOrdersQuery): Promise<Page<ServiceOrderRecord>> {
+    const term = query.q;
+    const where = {
+      organizationId,
+      ...(query.status ? { status: query.status } : {}),
+      ...(query.customerId ? { customerId: query.customerId } : {}),
+      ...(query.equipmentId ? { equipmentId: query.equipmentId } : {}),
+      ...(term ? { OR: [{ orderNumber: containsInsensitive(term) }, { customer: { name: containsInsensitive(term) } }, { equipment: { type: containsInsensitive(term) } }, { equipment: { brand: containsInsensitive(term) } }, { equipment: { model: containsInsensitive(term) } }] } : {}),
+    };
+    const [items, total] = await this.db.$transaction([
+      this.db.serviceOrder.findMany({ where, include: orderInclude, orderBy: newestFirst, ...skipTake(query) }),
+      this.db.serviceOrder.count({ where }),
+    ]);
+    return { items, total };
   }
 
   findById(organizationId: string, id: string): Promise<ServiceOrderRecord | null> {

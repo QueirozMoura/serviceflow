@@ -5,8 +5,8 @@ import type { Customer } from '../../types/customer';
 import type { Equipment } from '../../types/equipment';
 import type { ServiceOrder } from '../../types/service-order';
 
-const customerServiceMock = vi.hoisted(() => ({ list: vi.fn() }));
-const equipmentServiceMock = vi.hoisted(() => ({ list: vi.fn() }));
+const customerServiceMock = vi.hoisted(() => ({ list: vi.fn(), options: vi.fn() }));
+const equipmentServiceMock = vi.hoisted(() => ({ list: vi.fn(), options: vi.fn() }));
 const serviceOrderServiceMock = vi.hoisted(() => ({ get: vi.fn(), create: vi.fn(), update: vi.fn() }));
 vi.mock('../../services/customers', () => ({ customersService: customerServiceMock }));
 vi.mock('../../services/equipment', () => ({ equipmentService: equipmentServiceMock }));
@@ -43,15 +43,15 @@ async function fillNewOrder() {
 describe('ServiceOrderForm', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    customerServiceMock.list.mockResolvedValue({ customers: [customer] });
-    equipmentServiceMock.list.mockResolvedValue({ equipment: [equipment] });
+    customerServiceMock.options.mockResolvedValue({ customers: [{ id: customer.id, name: customer.name, phone: customer.phone }] });
+    equipmentServiceMock.options.mockResolvedValue({ equipment: [{ id: equipment.id, customerId: equipment.customerId, type: equipment.type, brand: equipment.brand, model: equipment.model, serialNumber: equipment.serialNumber }] });
     serviceOrderServiceMock.create.mockResolvedValue({ serviceOrder: order });
     serviceOrderServiceMock.update.mockResolvedValue({ serviceOrder: order });
   });
 
   it('shows loading and blocks submission when required fields are missing', async () => {
     let resolveCustomers: (value: { customers: Customer[] }) => void = () => undefined;
-    customerServiceMock.list.mockReturnValue(new Promise((resolve) => { resolveCustomers = resolve; }));
+    customerServiceMock.options.mockReturnValue(new Promise((resolve) => { resolveCustomers = resolve; }));
     renderPage();
 
     expect(screen.getByRole('status').textContent).toContain('Carregando formulário');
@@ -94,5 +94,17 @@ describe('ServiceOrderForm', () => {
     expect(saveButton.disabled).toBe(true);
     expect(serviceOrderServiceMock.create).toHaveBeenCalledTimes(1);
     resolveCreate({ serviceOrder: order });
+  });
+
+  it('fills the selectors from the complete options lists and never from the paginated lists', async () => {
+    renderPage();
+    await screen.findByRole('option', { name: /Alice Silva/ });
+    fireEvent.change(screen.getByLabelText(/Cliente/), { target: { value: 'customer-1' } });
+    await screen.findByRole('option', { name: /Dell Inspiron/ });
+
+    expect(customerServiceMock.options).toHaveBeenCalledTimes(1);
+    expect(equipmentServiceMock.options).toHaveBeenCalledWith('customer-1');
+    expect(customerServiceMock.list).not.toHaveBeenCalled();
+    expect(equipmentServiceMock.list).not.toHaveBeenCalled();
   });
 });

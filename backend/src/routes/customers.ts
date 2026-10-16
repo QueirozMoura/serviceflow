@@ -5,7 +5,8 @@ import { authenticate } from '../middlewares/authenticate.js';
 import { authorize } from '../middlewares/authorize.js';
 import type { AuthRepository } from '../modules/auth/repository.js';
 import { PrismaCustomerRepository, type CustomerRepository } from '../modules/customers/repository.js';
-import { createCustomerSchema, updateCustomerSchema } from '../modules/customers/schemas.js';
+import { createCustomerSchema, listCustomersQuerySchema, updateCustomerSchema } from '../modules/customers/schemas.js';
+import { buildPagination } from '../modules/shared/pagination.js';
 
 type CustomerRoutesOptions = {
   authRepository?: AuthRepository;
@@ -37,8 +38,17 @@ export async function customerRoutes(app: FastifyInstance, options: CustomerRout
   app.get('/', { preHandler: [requireAuthentication, authorize('customers:read')] }, async (request, reply) => {
     if (!request.user) return reply.status(401).send({ statusCode: 401, error: 'Unauthorized', message: 'Authentication required' });
 
-    const customers = await repository.list(request.user.organizationId);
-    return reply.send({ customers });
+    const parsed = listCustomersQuerySchema.safeParse(request.query);
+    if (!parsed.success) return reply.status(400).send({ statusCode: 400, error: 'Bad Request', message: 'Invalid customer filter' });
+
+    const { items, total } = await repository.list(request.user.organizationId, parsed.data);
+    return reply.send({ customers: items, pagination: buildPagination(parsed.data, total) });
+  });
+
+  // Lista completa e enxuta para seletores (formularios); nao e paginada de proposito.
+  app.get('/options', { preHandler: [requireAuthentication, authorize('customers:read')] }, async (request, reply) => {
+    if (!request.user) return reply.status(401).send({ statusCode: 401, error: 'Unauthorized', message: 'Authentication required' });
+    return reply.send({ customers: await repository.listOptions(request.user.organizationId) });
   });
 
   app.get('/:id', { preHandler: [requireAuthentication, authorize('customers:read')] }, async (request, reply) => {

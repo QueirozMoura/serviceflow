@@ -3,7 +3,9 @@ import { ServiceOrderStatus, UserRole, Prisma } from '@prisma/client';
 import type { FastifyInstance } from 'fastify';
 import type { AuthRepository, AuthSessionRecord, AuthUserRecord, CreatedAccount } from '../src/modules/auth/repository.js';
 import type { ServiceOrderRecord, ServiceOrderRepository } from '../src/modules/service-orders/repository.js';
-import type { CreateServiceOrderInput, UpdateServiceOrderInput } from '../src/modules/service-orders/schemas.js';
+import type { CreateServiceOrderInput, ListServiceOrdersQuery, UpdateServiceOrderInput } from '../src/modules/service-orders/schemas.js';
+import type { Page } from '../src/modules/shared/pagination.js';
+import { includesText, paginate } from './helpers/paginate.js';
 
 process.env.NODE_ENV = 'test';
 process.env.DATABASE_URL = 'postgresql://test:test@localhost:5432/test';
@@ -91,8 +93,8 @@ class MemoryServiceOrderRepository implements ServiceOrderRepository {
     return order;
   }
 
-  list(organizationId: string, filters: { status?: ServiceOrderStatus; customerId?: string; equipmentId?: string }): Promise<ServiceOrderRecord[]> {
-    return Promise.resolve(this.orders.filter((order) => order.organizationId === organizationId && (!filters.status || order.status === filters.status) && (!filters.customerId || order.customerId === filters.customerId) && (!filters.equipmentId || order.equipmentId === filters.equipmentId)));
+  list(organizationId: string, query: ListServiceOrdersQuery): Promise<Page<ServiceOrderRecord>> {
+    return Promise.resolve(paginate(this.orders.filter((order) => order.organizationId === organizationId && (!query.status || order.status === query.status) && (!query.customerId || order.customerId === query.customerId) && (!query.equipmentId || order.equipmentId === query.equipmentId) && includesText(query.q, order.orderNumber, order.customer.name, order.equipment.type, order.equipment.brand, order.equipment.model)), query));
   }
 
   findById(organizationId: string, id: string): Promise<ServiceOrderRecord | null> { return Promise.resolve(this.orders.find((order) => order.organizationId === organizationId && order.id === id) ?? null); }

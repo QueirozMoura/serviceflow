@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { pageQueryShape, searchTermSchema } from '../shared/pagination.js';
 
 const optionalText = (max: number) => z.string().trim().max(max).nullable().optional();
 
@@ -18,5 +19,8 @@ export const updateCustomerSchema = createCustomerSchema
   .refine((value) => Object.keys(value).length > 0, { message: 'At least one field is required' })
   .strict();
 
+export const listCustomersQuerySchema = z.object({ ...pageQueryShape, q: searchTermSchema });
+
 export type CreateCustomerInput = z.infer<typeof createCustomerSchema>;
 export type UpdateCustomerInput = z.infer<typeof updateCustomerSchema>;
+export type ListCustomersQuery = z.infer<typeof listCustomersQuerySchema>;

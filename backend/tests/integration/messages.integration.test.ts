@@ -146,7 +146,9 @@ describe('message history against a real PostgreSQL database', () => {
 
     expect(created.statusCode).toBe(201);
     expect(created.json().message.content).toContain('R$ 120,00');
-    expect(created.body + history.body).not.toMatch(/777|PAID|pagamento/i);
+    // Somente o texto das mensagens: o corpo inteiro tem UUIDs aleatorios que podem conter qualquer sequencia de digitos.
+    const texts = [created.json().message.content, ...history.json().messages.map((message: { content: string }) => message.content)].join('\n');
+    expect(texts).not.toMatch(/777|PAID|pagamento/i);
     expect((await app.inject({ method: 'GET', url: `/api/service-orders/${beta.serviceOrder.id}/payments`, headers: { cookie: beta.technician.cookie } })).statusCode).toBe(403);
   });
 
