@@ -34,6 +34,12 @@ export interface ServiceOrdersResponse { serviceOrders: ServiceOrder[]; }
 export interface ServiceOrderResponse { serviceOrder: ServiceOrder; }
 
 export interface Diagnosis { id: string; serviceOrderId: string; description: string; estimatedCost?: DecimalValue | null; createdAt: string; updatedAt: string; }
+export type MessageChannel = 'WHATSAPP' | 'EMAIL';
+/** Hoje só existe DRAFT: registrada no sistema, não enviada por ele (não há provedor de envio integrado). */
+export type MessageStatus = 'DRAFT';
+export interface MessageHistoryItem { id: string; type: MessageType; channel: MessageChannel; status: MessageStatus; content: string; createdAt: string; createdBy: { name: string }; recipient: { name: string }; }
+export interface MessageHistoryResponse { messages: MessageHistoryItem[]; sendingAvailable: boolean; }
+export interface RecordedMessageResponse { message: MessageHistoryItem; sendingAvailable: boolean; }
 export interface MessageResponse { type: MessageType; serviceOrderId: string; customer: { name: string }; phone: string; message: string; }
 export interface DiagnosisResponse { diagnosis: Diagnosis; }
 export type { Quote, QuoteItem, QuoteResponse, QuoteStatus, ServiceItemType } from './quote';

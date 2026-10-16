@@ -70,6 +70,7 @@ model Organization {
   serviceOrders ServiceOrder[]
   payments      Payment[]
   warranties    Warranty[]
+  messages      Message[]
 }
 
 model User {
@@ -85,6 +86,7 @@ model User {
   statusChanges  ServiceOrderStatusHistory[]
   sessions       Session[]
   oauthAccounts  OAuthAccount[]
+  messages       Message[]
 
   @@unique([organizationId, email])
   @@unique([id, organizationId])
@@ -105,6 +107,7 @@ model Customer {
   organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   equipment      Equipment[]
   serviceOrders  ServiceOrder[]
+  messages       Message[]
 
   @@unique([id, organizationId])
   @@index([organizationId])
@@ -157,6 +160,7 @@ model ServiceOrder {
   payments           Payment[]
   warranty           Warranty?
   statusHistory      ServiceOrderStatusHistory[]
+  messages           Message[]
 
   @@unique([organizationId, orderNumber])
   @@unique([id, organizationId])
@@ -284,4 +288,53 @@ model OAuthAccount {
   @@unique([provider, providerAccountId])
   @@unique([id, organizationId])
   @@index([userId, organizationId])
+}
+
+// Canais explicitos para registrar a comunicacao. Nao ha provedor integrado: o registro NAO significa envio.
+enum MessageChannel {
+  WHATSAPP
+  EMAIL
+}
+
+// Modelos de texto gerados pelo servidor (mesmos valores de messageTypeSchema).
+enum MessageType {
+  SERVICE_RECEIVED
+  DIAGNOSIS_READY
+  QUOTE_READY
+  QUOTE_APPROVED
+  SERVICE_IN_PROGRESS
+  SERVICE_READY
+  SERVICE_DELIVERED
+  WARRANTY_CREATED
+}
+
+// Hoje so existe DRAFT: registrado no sistema, nao enviado por ele. PENDING/SENT/FAILED so fazem sentido
+// com um provedor de envio real e serao adicionados junto com essa integracao.
+enum MessageStatus {
+  DRAFT
+}
+
+model Message {
+  id              String         @id @default(uuid())
+  organizationId  String
+  serviceOrderId  String
+  // Destinatario na epoca do registro (a OS pode trocar de cliente depois). Telefone/e-mail vem da relacao.
+  customerId      String
+  createdByUserId String
+  type            MessageType
+  channel         MessageChannel
+  status          MessageStatus  @default(DRAFT)
+  // Copia (snapshot) do texto gerado pelo servidor no momento do registro.
+  content         String
+  // Opcional: evita duplicar o registro quando a mesma requisicao e repetida.
+  idempotencyKey  String?
+  createdAt       DateTime       @default(now())
+  organization    Organization   @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  serviceOrder    ServiceOrder   @relation(fields: [serviceOrderId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade)
+  customer        Customer       @relation(fields: [customerId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade)
+  createdBy       User           @relation(fields: [createdByUserId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([organizationId, idempotencyKey])
+  @@index([organizationId])
+  @@index([organizationId, serviceOrderId, createdAt])
 }

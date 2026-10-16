@@ -12,7 +12,7 @@ export const PERMISSIONS = [
   'quotes:read', 'quotes:write', 'quotes:approve', 'quotes:reject', 'quotes:expire', 'quotes:delete',
   'payments:read', 'payments:write', 'payments:delete',
   'warranties:read', 'warranties:write', 'warranties:status', 'warranties:delete',
-  'messages:generate',
+  'messages:generate', 'messages:read', 'messages:write',
   'dashboard:read',
 ] as const;
 
@@ -31,7 +31,7 @@ const technicianPermissions: readonly Permission[] = [
   'diagnoses:read', 'diagnoses:write',
   'quotes:read', 'quotes:write',
   'warranties:read', 'warranties:write',
-  'messages:generate',
+  'messages:generate', 'messages:read', 'messages:write',
   'dashboard:read',
 ];
 

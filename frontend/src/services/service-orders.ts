@@ -1,5 +1,5 @@
 import { api } from './api';
-import type { DiagnosisResponse, MessageResponse, ServiceOrderInput, ServiceOrderResponse, ServiceOrderStatus, ServiceOrderUpdate, ServiceOrdersResponse, MessageType } from '../types/service-order';
+import type { DiagnosisResponse, MessageChannel, MessageHistoryResponse, MessageResponse, RecordedMessageResponse, ServiceOrderInput, ServiceOrderResponse, ServiceOrderStatus, ServiceOrderUpdate, ServiceOrdersResponse, MessageType } from '../types/service-order';
 
 export const serviceOrdersService = {
   list: (status?: ServiceOrderStatus) => api.get<ServiceOrdersResponse>(`/api/service-orders${status ? `?status=${status}` : ''}`),
@@ -12,5 +12,8 @@ export const serviceOrdersService = {
   createDiagnosis: (id: string, input: { description: string; estimatedCost?: string | null }) => api.post<DiagnosisResponse>(`/api/service-orders/${id}/diagnosis`, input),
   updateDiagnosis: (id: string, input: { description?: string; estimatedCost?: string | null }) => api.patch<DiagnosisResponse>(`/api/service-orders/${id}/diagnosis`, input),
   removeDiagnosis: (id: string) => api.delete<void>(`/api/service-orders/${id}/diagnosis`),
+  getMessageHistory: (id: string) => api.get<MessageHistoryResponse>(`/api/service-orders/${id}/messages/history`),
+  /** Registra um rascunho (o texto é gerado no servidor). A chave evita duplicar o registro se a requisição se repetir. */
+  recordMessage: (id: string, input: { type: MessageType; channel: MessageChannel }, idempotencyKey: string) => api.post<RecordedMessageResponse>(`/api/service-orders/${id}/messages/history`, input, { 'Idempotency-Key': idempotencyKey }),
   generateMessage: (id: string, type: MessageType) => api.post<MessageResponse>(`/api/service-orders/${id}/messages`, { type }),
 };

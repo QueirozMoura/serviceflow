@@ -4,7 +4,7 @@ import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { ApiError } from '../../services/api';
 import type { Diagnosis, ServiceOrder } from '../../types/service-order';
 
-const serviceOrderServiceMock = vi.hoisted(() => ({ get: vi.fn(), updateStatus: vi.fn(), remove: vi.fn(), getDiagnosis: vi.fn(), createDiagnosis: vi.fn(), updateDiagnosis: vi.fn(), removeDiagnosis: vi.fn(), generateMessage: vi.fn() }));
+const serviceOrderServiceMock = vi.hoisted(() => ({ get: vi.fn(), updateStatus: vi.fn(), remove: vi.fn(), getDiagnosis: vi.fn(), createDiagnosis: vi.fn(), updateDiagnosis: vi.fn(), removeDiagnosis: vi.fn(), generateMessage: vi.fn(), getMessageHistory: vi.fn(), recordMessage: vi.fn() }));
 const quotesServiceMock = vi.hoisted(() => ({ get: vi.fn(), updateStatus: vi.fn() }));
 const paymentsServiceMock = vi.hoisted(() => ({ list: vi.fn() }));
 const warrantiesServiceMock = vi.hoisted(() => ({ get: vi.fn() }));
@@ -51,6 +51,7 @@ describe('ServiceOrderDetails', () => {
     authMock.denied.clear();
     vi.clearAllMocks();
     serviceOrderServiceMock.get.mockResolvedValue({ serviceOrder: order });
+    serviceOrderServiceMock.getMessageHistory.mockResolvedValue({ messages: [], sendingAvailable: false });
     serviceOrderServiceMock.getDiagnosis.mockRejectedValue(notFound());
     quotesServiceMock.get.mockRejectedValue(notFound());
     paymentsServiceMock.list.mockResolvedValue({ payments: [] });

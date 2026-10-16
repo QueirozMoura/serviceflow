@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowLeft, ClipboardList, Copy, Edit3, MessageSquare, Plus, Send, Trash2, UserRound, Wrench } from 'lucide-react';
+import { ArrowLeft, ClipboardList, Edit3, Plus, Trash2, UserRound, Wrench } from 'lucide-react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { serviceOrdersService } from '../../services/service-orders';
 import { quotesService } from '../../services/quotes';
 import { paymentsService } from '../../services/payments';
 import { warrantiesService } from '../../services/warranties';
-import type { DecimalValue, Diagnosis, MessageResponse, ServiceOrder, ServiceOrderStatus } from '../../types/service-order';
+import type { DecimalValue, Diagnosis, ServiceOrder, ServiceOrderStatus } from '../../types/service-order';
 import type { Quote, QuoteItem, QuoteStatus, ServiceItemInput, ServiceItemType } from '../../types/quote';
 import type { Payment, PaymentMethod, PaymentStatus } from '../../types/payment';
 import type { Warranty, WarrantyInput, WarrantyStatus } from '../../types/warranty';
@@ -19,6 +19,7 @@ import { ErrorState, Loading } from '../../components/ui/Feedback';
 import { Toast } from '../../components/ui/Toast';
 import { normalizeDecimalInput } from '../../utils/decimal';
 import { orderStatusPermission, quoteStatusPermission } from '../../utils/permissions';
+import { CommunicationCard } from './CommunicationCard';
 import { diagnosisErrorMessage, serviceOrderDeleteErrorMessage, validateDiagnosis } from './messages';
 
 const orderTransitions: Record<ServiceOrderStatus, ServiceOrderStatus[]> = { RECEIVED: ['WAITING_DIAGNOSIS', 'CANCELLED'], WAITING_DIAGNOSIS: ['WAITING_APPROVAL', 'CANCELLED'], WAITING_APPROVAL: ['APPROVED', 'CANCELLED'], APPROVED: ['IN_PROGRESS', 'CANCELLED'], IN_PROGRESS: ['READY', 'CANCELLED'], READY: ['DELIVERED'], DELIVERED: [], CANCELLED: [] };
@@ -68,8 +69,6 @@ export function ServiceOrderDetails() {
   const [warrantyFormOpen, setWarrantyFormOpen] = useState(false);
   const [editingWarranty, setEditingWarranty] = useState(false);
   const [warrantyForm, setWarrantyForm] = useState<WarrantyInput>({ startDate: '', endDate: '', description: '' });
-  const [messageType, setMessageType] = useState<MessageResponse['type']>('SERVICE_RECEIVED');
-  const [message, setMessage] = useState<MessageResponse | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true); setError('');
@@ -122,8 +121,6 @@ export function ServiceOrderDetails() {
   const saveWarranty = () => void run(editingWarranty ? 'warranty-update' : 'warranty-create', async () => { if (!warrantyForm.startDate || !warrantyForm.endDate || warrantyForm.startDate > warrantyForm.endDate || warrantyForm.description.trim().length < 2) throw new ApiError('Invalid warranty data', 400); const response = editingWarranty ? await warrantiesService.update(id, { ...warrantyForm, description: warrantyForm.description.trim() }) : await warrantiesService.create(id, { ...warrantyForm, description: warrantyForm.description.trim() }); setWarranty(response.warranty); setWarrantyFormOpen(false); setEditingWarranty(false); }, editingWarranty ? 'Garantia atualizada.' : 'Garantia criada.');
   const changeWarrantyStatus = (status: WarrantyStatus) => void run(`warranty-${status}`, async () => { const response = await warrantiesService.updateStatus(id, status); setWarranty(response.warranty); }, `Garantia ${warrantyLabels[status].toLocaleLowerCase()}.`);
   const removeConfirmed = () => { if (!confirmAction) return; const action = confirmAction; if (action.type === 'order-delete') { void deleteOrder(); return; } setConfirmAction(null); if (action.type === 'diagnosis') void run('diagnosis-delete', async () => { await serviceOrdersService.removeDiagnosis(id); setDiagnosis(null); setEditingDiagnosis(false); }, 'Diagnóstico excluído.'); if (action.type === 'order-status') changeOrderStatus(action.status); if (action.type === 'quote') void run('quote-delete', async () => { await quotesService.remove(id); setQuote(null); }, 'Orçamento excluído.'); if (action.type === 'item') void run('item-delete', async () => { const response = await quotesService.removeItem(id, action.id); setQuote(response.quote); }, 'Item removido.'); if (action.type === 'payment') void run('payment-delete', async () => { await paymentsService.remove(id, action.id); setPayments((current) => current.filter((entry) => entry.id !== action.id)); }, 'Pagamento excluído.'); if (action.type === 'warranty') void run('warranty-delete', async () => { await warrantiesService.remove(id); setWarranty(null); }, 'Garantia excluída.'); };
-  const generateMessage = () => void run('message', async () => { setMessage(await serviceOrdersService.generateMessage(id, messageType)); }, 'Mensagem gerada.');
-  const copyMessage = async () => { if (message) { await navigator.clipboard.writeText(message.message); setToast('Mensagem copiada.'); } };
 
   if (loading) return <Loading message="Carregando ordem de serviço..." />;
   if (error || !order) return <ErrorState message={error || 'Ordem de serviço não encontrada.'} actionLabel="Voltar" onAction={() => navigate('/service-orders')} />;
@@ -146,7 +143,7 @@ export function ServiceOrderDetails() {
       <QuoteSection canDelete={can('quotes:delete')} canDecide={(status) => { const required = quoteStatusPermission(status); return required === null || can(required); }} quote={quote} notes={quoteNotes} quoteFormOpen={quoteFormOpen} itemFormOpen={itemFormOpen} itemForm={itemForm} editingItemId={editingItemId} operation={operation} onCreate={() => setQuoteFormOpen(true)} onCreateQuote={createQuote} onNotesChange={setQuoteNotes} onCancelQuote={() => setQuoteFormOpen(false)} onAddItem={() => { setEditingItemId(null); setItemForm({ description: '', quantity: '1', unitPrice: '', type: 'PART' }); setItemFormOpen(true); }} onItemChange={setItemForm} onSaveItem={saveItem} onCancelItem={() => { setItemFormOpen(false); setEditingItemId(null); }} onEditItem={(entry) => { setEditingItemId(entry.id); setItemForm({ description: entry.description, quantity: String(entry.quantity), unitPrice: String(entry.unitPrice), type: entry.type }); setItemFormOpen(true); }} onRemoveItem={(itemId) => setConfirmAction({ type: 'item', id: itemId })} onRemoveQuote={() => setConfirmAction({ type: 'quote' })} onQuoteStatus={changeQuoteStatus} />
       {canReadPayments ? <PaymentSection canWrite={can('payments:write')} canDelete={can('payments:delete')} payments={payments} form={paymentForm} formOpen={paymentFormOpen} editingId={editingPaymentId} operation={operation} quoteTotal={quote?.total} paidTotal={paidTotal} pendingTotal={pendingTotal} onOpen={() => { setEditingPaymentId(null); setPaymentForm({ amount: '', method: 'PIX' }); setPaymentFormOpen(true); }} onChange={setPaymentForm} onSave={savePayment} onCancel={() => { setPaymentFormOpen(false); setEditingPaymentId(null); }} onEdit={(payment) => { setEditingPaymentId(payment.id); setPaymentForm({ amount: String(payment.amount), method: payment.method }); setPaymentFormOpen(true); }} onStatus={changePaymentStatus} onRemove={(paymentId) => setConfirmAction({ type: 'payment', id: paymentId })} /> : null}
       <WarrantySection canDelete={can('warranties:delete')} canStatus={can('warranties:status')} orderStatus={order.status} warranty={warranty} form={warrantyForm} formOpen={warrantyFormOpen} operation={operation} onOpen={() => { setEditingWarranty(false); setWarrantyForm({ startDate: new Date().toISOString().slice(0, 10), endDate: '', description: '' }); setWarrantyFormOpen(true); }} onEdit={() => { if (!warranty) return; setEditingWarranty(true); setWarrantyForm({ startDate: warranty.startDate.slice(0, 10), endDate: warranty.endDate.slice(0, 10), description: warranty.description }); setWarrantyFormOpen(true); }} onChange={setWarrantyForm} onSave={saveWarranty} onCancel={() => { setWarrantyFormOpen(false); setEditingWarranty(false); }} onStatus={changeWarrantyStatus} onRemove={() => setConfirmAction({ type: 'warranty' })} />
-      <Card className="full-detail-card"><div className="section-heading"><h3>Comunicação</h3><MessageSquare size={18} /></div><div className="message-controls"><select value={messageType} onChange={(event) => setMessageType(event.target.value as MessageResponse['type'])}><option value="SERVICE_RECEIVED">OS recebida</option><option value="DIAGNOSIS_READY">Diagnóstico pronto</option><option value="QUOTE_READY">Orçamento pronto</option><option value="QUOTE_APPROVED">Orçamento aprovado</option><option value="SERVICE_IN_PROGRESS">Serviço em andamento</option><option value="SERVICE_READY">Serviço pronto</option><option value="SERVICE_DELIVERED">Serviço entregue</option><option value="WARRANTY_CREATED">Garantia criada</option></select><Button className="button-primary" onClick={generateMessage} disabled={operation === 'message'}><Send size={16} />{operation === 'message' ? 'Gerando...' : 'Gerar mensagem'}</Button></div>{message ? <div className="generated-message"><p>{message.message}</p><Button className="button-secondary button-small" onClick={() => void copyMessage()}><Copy size={15} /> Copiar</Button></div> : null}</Card>
+      <CommunicationCard serviceOrderId={id} canGenerate={can('messages:generate')} canRead={can('messages:read')} canWrite={can('messages:write')} />
     </div>
     <ConfirmDialog isOpen={confirmAction !== null} title={confirmTitle ?? ''} message={confirmMessage ?? ''} isLoading={operation.endsWith('delete')} onCancel={() => { if (operation !== 'order-delete') setConfirmAction(null); }} onConfirm={removeConfirmed} />
     {toast ? <Toast message={toast} onClose={() => setToast('')} /> : null}

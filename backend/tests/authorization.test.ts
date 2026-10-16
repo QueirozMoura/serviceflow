@@ -108,6 +108,8 @@ const routes: RouteCase[] = [
   { method: 'PATCH', url: `/api/service-orders/${id}/warranty/status`, technicianDenied: true },
   { method: 'DELETE', url: `/api/service-orders/${id}/warranty`, technicianDenied: true },
   { method: 'POST', url: `/api/service-orders/${id}/messages`, technicianDenied: false },
+  { method: 'GET', url: `/api/service-orders/${id}/messages/history`, technicianDenied: false },
+  { method: 'POST', url: `/api/service-orders/${id}/messages/history`, technicianDenied: false, payload: { type: 'SERVICE_RECEIVED', channel: 'WHATSAPP' } },
   { method: 'GET', url: '/api/dashboard', technicianDenied: false },
   // Listagens agregadas: o tecnico le orcamentos e garantias, mas nunca pagamentos.
   { method: 'GET', url: '/api/quotes', technicianDenied: false },

@@ -208,6 +208,33 @@ test('applies role permissions: a technician is restricted and an admin promoted
   await expect(page.getByText('Flat do teclado solto')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Excluir diagnóstico' })).toHaveCount(0);
 
+  // Historico de comunicacao: o tecnico registra um rascunho; o sistema nao envia nada.
+  await expect(page.getByText('Nenhuma mensagem registrada para esta OS.')).toBeVisible();
+  await expect(page.getByText(/Envio automático ainda não disponível/)).toBeVisible();
+  await page.getByRole('button', { name: 'Gerar mensagem' }).click();
+  await expect(page.getByText(/Recebemos seu Notebook Acer Aspire E2E/)).toBeVisible();
+  await page.getByRole('button', { name: 'Registrar no histórico' }).click();
+  const history = page.getByRole('list', { name: 'Histórico de comunicação' });
+  await expect(history.getByText('Rascunho · não enviada pelo sistema')).toBeVisible();
+  await expect(history.getByText('WhatsApp · OS recebida')).toBeVisible();
+  await expect(history.getByText(/Destinatário: Cliente Papel E2E/)).toBeVisible();
+  await page.reload();
+  await expect(history.getByText('Rascunho · não enviada pelo sistema')).toBeVisible();
+  await expect(history.getByText(/enviada\b/i).filter({ hasNotText: 'não enviada' })).toHaveCount(0);
+  const historyUrl = `${api}/service-orders/${serviceOrder.id}/messages/history`;
+  expect((await page.request.post(historyUrl, { data: { type: 'SERVICE_RECEIVED', channel: 'WHATSAPP', content: 'texto forjado', status: 'SENT', organizationId: 'x' } })).status()).toBe(400);
+  expect((await page.request.post(historyUrl, { data: { type: 'SERVICE_RECEIVED', channel: 'EMAIL' } })).status()).toBe(409);
+  expect((await page.request.get(`${api}/service-orders/00000000-0000-4000-8000-000000000000/messages/history`)).status()).toBe(404);
+  const keyed = { data: { type: 'SERVICE_READY', channel: 'WHATSAPP' }, headers: { 'Idempotency-Key': 'e2e-idempotency-0001' } };
+  const first = await page.request.post(historyUrl, keyed);
+  const repeated = await page.request.post(historyUrl, keyed);
+  expect([first.status(), repeated.status()]).toEqual([201, 200]);
+  expect((await repeated.json()).message.id).toBe((await first.json()).message.id);
+  const listed = await (await page.request.get(historyUrl)).json();
+  expect(listed.messages).toHaveLength(2);
+  expect(listed.sendingAvailable).toBe(false);
+  expect(listed.messages.every((message: { status: string }) => message.status === 'DRAFT')).toBe(true);
+
   // O backend recusa mesmo contornando a interface (e nao vaza se o recurso existe).
   const missing = '00000000-0000-4000-8000-000000000000';
   for (const [method, url] of [['delete', `${api}/service-orders/${serviceOrder.id}`], ['delete', `${api}/service-orders/${missing}`], ['delete', `${api}/customers/${customer.customer.id}`], ['delete', `${api}/service-orders/${serviceOrder.id}/diagnosis`], ['get', `${api}/service-orders/${serviceOrder.id}/payments`], ['post', `${api}/service-orders/${serviceOrder.id}/payments`]] as const) {
@@ -258,6 +285,8 @@ test('applies role permissions: a technician is restricted and an admin promoted
   await page.goto(`/service-orders/${serviceOrder.id}`);
   await expect(page.getByRole('heading', { name: 'Pagamentos' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Excluir diagnóstico' })).toBeVisible();
+  // O historico registrado pelo tecnico continua visivel (mesma organizacao) para o ADMIN, com o autor correto.
+  await expect(page.getByRole('list', { name: 'Histórico de comunicação' }).getByText(/Registrada por E2E Owner/).first()).toBeVisible();
   expect((await page.request.get(`${api}/service-orders/${serviceOrder.id}/payments`)).status()).toBe(200);
   expect((await page.request.delete(`${api}/service-orders/${serviceOrder.id}/diagnosis`)).status()).toBe(204);
 

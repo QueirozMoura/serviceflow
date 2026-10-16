@@ -39,6 +39,10 @@ class MemoryMessageRepository implements MessageRepository {
   lastOrganizationId: string | null = null;
   set(organizationId: string, serviceOrderId: string, context: MessageContext): void { this.contexts.set(serviceOrderId, { organizationId, context }); }
   async findContext(organizationId: string, serviceOrderId: string, type: MessageType): Promise<MessageContext | null> { this.lastOrganizationId = organizationId; const entry = this.contexts.get(serviceOrderId); if (!entry || entry.organizationId !== organizationId) return null; if (type === 'DIAGNOSIS_READY' && !entry.context.diagnosis) return { ...entry.context }; return entry.context; }
+  // O historico persistido e coberto em message-history.test.ts e nos testes de integracao.
+  listHistory(): Promise<never> { throw new Error('not used'); }
+  findHistoryByKey(): Promise<never> { throw new Error('not used'); }
+  createHistory(): Promise<never> { throw new Error('not used'); }
 }
 
 describe('message generator', () => {
