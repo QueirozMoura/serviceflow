@@ -49,6 +49,10 @@ class MemoryAuthRepository implements AuthRepository {
   findUserById(id: string): Promise<AuthUserRecord | null> {
     return Promise.resolve(this.users.find((user) => user.id === id) ?? null);
   }
+  async updateUserName(id: string, organizationId: string, name: string): Promise<AuthUserRecord | null> { const user = this.users.find((candidate) => candidate.id === id && candidate.organizationId === organizationId); if (!user) return null; user.name = name; return user; }
+  findUserByOAuthAccount(): Promise<AuthUserRecord | null> { return Promise.resolve(null); }
+  async linkOAuthAccount(): Promise<void> { return undefined; }
+  createOrganizationWithOAuthUser(): Promise<CreatedAccount> { throw new Error('not used'); }
 
   async createSession(input: { tokenHash: string; userId: string; organizationId: string; expiresAt: Date }): Promise<void> {
     const user = this.users.find((candidate) => candidate.id === input.userId);
@@ -146,7 +150,7 @@ describe('customer routes', () => {
       payload: { email: `owner-${id}@example.com`, password: 'StrongPass1' },
     });
     const setCookie = response.headers['set-cookie'];
-    return String(Array.isArray(setCookie) ? setCookie[0] : setCookie).split(';')[0];
+    return String(Array.isArray(setCookie) ? setCookie[0] : setCookie).split(';')[0] as string;
   }
 
   async function createCustomer(cookie: string) {

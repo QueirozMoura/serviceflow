@@ -16,6 +16,10 @@ class MemoryAuthRepository implements AuthRepository {
   async createOrganizationWithOwner(input: { organizationName: string; slug: string; name: string; email: string; passwordHash: string }): Promise<CreatedAccount> { const id = String(++this.sequence); const organization = { id: `organization-${id}`, name: input.organizationName, slug: input.slug }; const user: AuthUserRecord = { id: `user-${id}`, organizationId: organization.id, name: input.name, email: input.email, passwordHash: input.passwordHash, role: UserRole.OWNER, organization }; this.users.push(user); return { user, organization }; }
   findUsersByEmail(email: string): Promise<AuthUserRecord[]> { return Promise.resolve(this.users.filter((user) => user.email === email)); }
   findUserById(id: string): Promise<AuthUserRecord | null> { return Promise.resolve(this.users.find((user) => user.id === id) ?? null); }
+  async updateUserName(id: string, organizationId: string, name: string): Promise<AuthUserRecord | null> { const user = this.users.find((candidate) => candidate.id === id && candidate.organizationId === organizationId); if (!user) return null; user.name = name; return user; }
+  findUserByOAuthAccount(): Promise<AuthUserRecord | null> { return Promise.resolve(null); }
+  async linkOAuthAccount(): Promise<void> { return undefined; }
+  createOrganizationWithOAuthUser(): Promise<CreatedAccount> { throw new Error('not used'); }
   async createSession(input: { tokenHash: string; userId: string; organizationId: string; expiresAt: Date }): Promise<void> { const user = this.users.find((candidate) => candidate.id === input.userId); if (!user) throw new Error('User not found'); this.sessions.set(input.tokenHash, { expiresAt: input.expiresAt, user: { id: user.id, organizationId: user.organizationId, role: user.role } }); }
   findSessionByTokenHash(tokenHash: string): Promise<AuthSessionRecord | null> { const session = this.sessions.get(tokenHash); return Promise.resolve(session && !session.revokedAt ? session : null); }
   async revokeSession(tokenHash: string): Promise<void> { const session = this.sessions.get(tokenHash); if (session) session.revokedAt = new Date(); }

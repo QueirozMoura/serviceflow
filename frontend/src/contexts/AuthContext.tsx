@@ -16,6 +16,7 @@ interface AuthContextValue {
   login: (input: LoginInput) => Promise<void>;
   logout: () => Promise<void>;
   refreshSession: () => Promise<void>;
+  updateProfile: (input: { name: string }) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -64,8 +65,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  // O backend identifica o usuário pela sessão; a resposta atualiza o contexto (Sidebar/Header) sem novo login.
+  const updateProfile = async (input: { name: string }) => {
+    const response = await api.patch<AuthResponse>('/api/auth/me', input);
+    setUser(response.user);
+  };
+
   return (
-    <AuthContext.Provider value={{ user, isAuthenticated: user !== null, isLoading, login, logout, refreshSession }}>
+    <AuthContext.Provider value={{ user, isAuthenticated: user !== null, isLoading, login, logout, refreshSession, updateProfile }}>
       {children}
     </AuthContext.Provider>
   );

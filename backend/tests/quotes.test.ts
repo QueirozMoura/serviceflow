@@ -24,6 +24,10 @@ class MemoryAuthRepository implements AuthRepository {
   }
   findUsersByEmail(email: string): Promise<AuthUserRecord[]> { return Promise.resolve(this.users.filter((user) => user.email === email)); }
   findUserById(id: string): Promise<AuthUserRecord | null> { return Promise.resolve(this.users.find((user) => user.id === id) ?? null); }
+  async updateUserName(id: string, organizationId: string, name: string): Promise<AuthUserRecord | null> { const user = this.users.find((candidate) => candidate.id === id && candidate.organizationId === organizationId); if (!user) return null; user.name = name; return user; }
+  findUserByOAuthAccount(): Promise<AuthUserRecord | null> { return Promise.resolve(null); }
+  async linkOAuthAccount(): Promise<void> { return undefined; }
+  createOrganizationWithOAuthUser(): Promise<CreatedAccount> { throw new Error('not used'); }
   async createSession(input: { tokenHash: string; userId: string; organizationId: string; expiresAt: Date }): Promise<void> {
     const user = this.users.find((candidate) => candidate.id === input.userId);
     if (!user) throw new Error('User not found');

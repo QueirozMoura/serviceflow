@@ -5,7 +5,7 @@ import {
   FileText,
   LayoutDashboard,
   LogOut,
-  Settings,
+  UserRound,
   ShieldCheck,
   Users,
   Wrench,
@@ -39,7 +39,7 @@ const groups = [
   },
   {
     label: 'Sistema',
-    items: [{ label: 'Configurações', icon: Settings }],
+    items: [{ label: 'Meu perfil', icon: UserRound, to: '/profile' }],
   },
 ];
 

@@ -34,6 +34,7 @@ export interface AuthRepository {
   }): Promise<CreatedAccount>;
   findUsersByEmail(email: string): Promise<AuthUserRecord[]>;
   findUserById(id: string): Promise<AuthUserRecord | null>;
+  updateUserName(id: string, organizationId: string, name: string): Promise<AuthUserRecord | null>;
   createSession(input: {
     tokenHash: string;
     userId: string;
@@ -89,6 +90,12 @@ export class PrismaAuthRepository implements AuthRepository {
 
   findUserById(id: string): Promise<AuthUserRecord | null> {
     return this.db.user.findUnique({ where: { id }, include: { organization: true } });
+  }
+
+  async updateUserName(id: string, organizationId: string, name: string): Promise<AuthUserRecord | null> {
+    const result = await this.db.user.updateMany({ where: { id, organizationId }, data: { name } });
+    if (result.count === 0) return null;
+    return this.findUserById(id);
   }
 
   async createSession(input: {

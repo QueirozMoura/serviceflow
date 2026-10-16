@@ -142,3 +142,32 @@ test('registers and edits a diagnosis and respects the server rule when deleting
   await expect(page).toHaveURL(new RegExp(`/service-orders/${serviceOrder.id}$`));
   expect((await page.request.get(`${api}/service-orders/${serviceOrder.id}`)).status()).toBe(200);
 });
+
+test('shows the profile, renames the user everywhere and persists after reload', async ({ page, request }) => {
+  const account = await login(page, request);
+  await page.getByRole('link', { name: 'Meu perfil' }).click();
+  await expect(page).toHaveURL(/\/profile$/);
+  await expect(page.getByLabel(/^Nome/)).toHaveValue('E2E Owner');
+  await expect(page.getByLabel('E-mail')).toHaveValue(account.email);
+  await expect(page.getByLabel('E-mail')).toBeDisabled();
+  await expect(page.getByLabel('Papel')).toHaveValue('Proprietário');
+
+  await page.getByLabel(/^Nome/).fill('A');
+  await page.getByRole('button', { name: 'Salvar perfil' }).click();
+  await expect(page.getByRole('alert')).toContainText('pelo menos 2 caracteres');
+
+  await page.getByLabel(/^Nome/).fill('Maria E2E');
+  await page.getByRole('button', { name: 'Salvar perfil' }).click();
+  await expect(page.getByText('Perfil atualizado.')).toBeVisible();
+  await expect(page.locator('.sidebar-footer').getByText('Maria E2E')).toBeVisible();
+  await expect(page.locator('.header-user').getByText('Maria E2E')).toBeVisible();
+
+  // O backend recusa campos protegidos mesmo que o cliente os envie.
+  const protectedAttempt = await page.request.patch('/api/auth/me', { data: { name: 'Hacker', role: 'ADMIN', email: 'x@example.com' } });
+  expect(protectedAttempt.status()).toBe(400);
+
+  await page.reload();
+  await expect(page.getByLabel(/^Nome/)).toHaveValue('Maria E2E');
+  await expect(page.getByLabel('E-mail')).toHaveValue(account.email);
+  await expect(page.getByLabel('Papel')).toHaveValue('Proprietário');
+});

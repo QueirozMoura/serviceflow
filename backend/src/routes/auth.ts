@@ -4,7 +4,7 @@ import { PrismaClient } from '@prisma/client';
 import { env } from '../config/env.js';
 import { prisma } from '../lib/prisma.js';
 import { authenticate } from '../middlewares/authenticate.js';
-import { loginSchema, registerSchema } from '../modules/auth/schemas.js';
+import { loginSchema, registerSchema, updateProfileSchema } from '../modules/auth/schemas.js';
 import { PrismaAuthRepository, type AuthRepository } from '../modules/auth/repository.js';
 import {
   buildGoogleAuthorizationUrl,
@@ -95,6 +95,17 @@ export async function authRoutes(app: FastifyInstance, options: AuthRoutesOption
       return reply.status(401).send({ statusCode: 401, error: 'Unauthorized', message: 'Authentication required' });
     }
 
+    return reply.send({ user: { ...getPublicUser(user), organization: { id: user.organization.id, name: user.organization.name } } });
+  });
+
+  // A identidade vem somente da sessao; o corpo aceita apenas `name`.
+  app.patch('/me', { preHandler: requireAuthentication }, async (request, reply) => {
+    const parsed = updateProfileSchema.safeParse(request.body);
+    if (!parsed.success) return reply.status(400).send({ statusCode: 400, error: 'Bad Request', message: 'Invalid profile data' });
+    if (!request.user) return reply.status(401).send({ statusCode: 401, error: 'Unauthorized', message: 'Authentication required' });
+
+    const user = await repository.updateUserName(request.user.id, request.user.organizationId, parsed.data.name);
+    if (!user) return reply.status(401).send({ statusCode: 401, error: 'Unauthorized', message: 'Authentication required' });
     return reply.send({ user: { ...getPublicUser(user), organization: { id: user.organization.id, name: user.organization.name } } });
   });
 
