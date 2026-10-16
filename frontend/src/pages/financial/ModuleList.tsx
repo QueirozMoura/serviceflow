@@ -4,19 +4,15 @@ import { Link } from 'react-router-dom';
 import { ApiError } from '../../services/api';
 import { paymentsService } from '../../services/payments';
 import { quotesService } from '../../services/quotes';
-import { serviceOrdersService } from '../../services/service-orders';
 import { warrantiesService } from '../../services/warranties';
-import type { Payment } from '../../types/payment';
-import type { Quote } from '../../types/quote';
-import type { ServiceOrder } from '../../types/service-order';
-import type { Warranty } from '../../types/warranty';
+import type { OverviewOrder, PaymentOverviewRow, QuoteOverviewRow, WarrantyOverviewRow } from '../../types/overview';
 import { Badge } from '../../components/ui/Badge';
 import { Card } from '../../components/ui/Card';
 import { EmptyState } from '../../components/ui/ResourceStates';
 import { ErrorState, Loading } from '../../components/ui/Feedback';
 
 type Module = 'quotes' | 'payments' | 'warranties';
-type ModuleRecord = { order: ServiceOrder; quote?: Quote; payments?: Payment[]; warranty?: Warranty };
+type ModuleRecord = { order: OverviewOrder; quote?: QuoteOverviewRow['quote']; payments?: PaymentOverviewRow['payments']; warranty?: WarrantyOverviewRow['warranty'] };
 type StatusFilter = 'ALL' | string;
 
 const config: Record<Module, { eyebrow: string; title: string; description: string; empty: string }> = {
@@ -38,30 +34,11 @@ const statusOptions: Record<Module, Array<{ value: StatusFilter; label: string }
   warranties: [{ value: 'ALL', label: 'Todos os status' }, { value: 'ACTIVE', label: 'Ativas' }, { value: 'EXPIRED', label: 'Expiradas' }, { value: 'CANCELLED', label: 'Canceladas' }],
 };
 
-async function optional<T>(request: () => Promise<T>): Promise<T | null> {
-  try {
-    return await request();
-  } catch (cause) {
-    if (cause instanceof ApiError && cause.status === 404) return null;
-    throw cause;
-  }
-}
-
+// Uma única requisição agregada por tela (antes: lista de OS + uma chamada por OS).
 async function loadRecords(module: Module): Promise<ModuleRecord[]> {
-  const orders = (await serviceOrdersService.list()).serviceOrders;
-  const records = await Promise.all(orders.map(async (order) => {
-    if (module === 'quotes') {
-      const response = await optional(() => quotesService.get(order.id));
-      return response ? { order, quote: response.quote } : null;
-    }
-    if (module === 'warranties') {
-      const response = await optional(() => warrantiesService.get(order.id));
-      return response ? { order, warranty: response.warranty } : null;
-    }
-    const response = await paymentsService.list(order.id);
-    return response.payments.length ? { order, payments: response.payments } : null;
-  }));
-  return records.filter((record) => record !== null) as ModuleRecord[];
+  if (module === 'quotes') return (await quotesService.listOverview()).quotes.map(({ serviceOrder, quote }) => ({ order: serviceOrder, quote }));
+  if (module === 'warranties') return (await warrantiesService.listOverview()).warranties.map(({ serviceOrder, warranty }) => ({ order: serviceOrder, warranty }));
+  return (await paymentsService.listOverview()).payments.map(({ serviceOrder, payments }) => ({ order: serviceOrder, payments }));
 }
 
 export function ModuleList({ module }: { module: Module }) {
@@ -78,7 +55,7 @@ export function ModuleList({ module }: { module: Module }) {
     try {
       setRecords(await loadRecords(module));
     } catch (cause) {
-      setError(cause instanceof ApiError && cause.status === 401 ? 'Sua sessão expirou. Entre novamente.' : `Não foi possível carregar ${page.title.toLocaleLowerCase()}.`);
+      setError(cause instanceof ApiError && cause.status === 401 ? 'Sua sessão expirou. Entre novamente.' : cause instanceof ApiError && cause.status === 403 ? 'Você não tem permissão para acessar esta página.' : `Não foi possível carregar ${page.title.toLocaleLowerCase()}.`);
     } finally {
       setLoading(false);
     }
@@ -114,7 +91,7 @@ export function ModuleList({ module }: { module: Module }) {
       {loading ? <Loading message={`Carregando ${page.title.toLocaleLowerCase()}...`} /> : error ? <ErrorState message={error} actionLabel="Tentar novamente" onAction={() => void load()} /> : records.length === 0 ? <EmptyState title={page.empty} message="Os registros aparecerão aqui quando forem vinculados a uma ordem de serviço." actionLabel="Ver ordens de serviço" to="/service-orders" /> : filtered.length === 0 ? <div className="inline-empty"><Search size={20} /><p>Nenhum registro encontrado para essa busca.</p></div> : <div className="table-wrap"><table className="resource-table financial-table"><thead><tr><th>OS</th><th>Cliente</th><th>Informações</th><th>Status</th><th>Atualização</th><th>Ação</th></tr></thead><tbody>{filtered.map((record) => {
         const data = module === 'quotes' ? record.quote : module === 'payments' ? record.payments?.[0] : record.warranty;
         const status = module === 'quotes' ? record.quote?.status : module === 'payments' ? (record.payments?.length === 1 ? record.payments[0].status : `${record.payments?.length} pagamentos`) : record.warranty?.status;
-        return <tr key={record.order.id}><td><Link className="resource-name financial-order-link" to={`/service-orders/${record.order.id}`}>{record.order.orderNumber}<small>Ver detalhes da OS <ArrowRight size={12} /></small></Link></td><td>{record.order.customer.name}</td><td>{module === 'quotes' && record.quote ? <><strong className="financial-value">{money(record.quote.total)}</strong><small className="table-subtext">{record.quote.items.length} {record.quote.items.length === 1 ? 'item' : 'itens'}</small></> : module === 'payments' ? <><strong className="financial-value">{money(record.payments?.reduce((total, payment) => total + Number(payment.amount), 0) ?? 0)}</strong><small className="table-subtext">{record.payments?.length === 1 ? methodLabels[record.payments[0].method] : `${record.payments?.length} lançamentos`}</small></> : record.warranty ? <><span className="warranty-period">{date(record.warranty.startDate)} a {date(record.warranty.endDate)}</span><small className="table-subtext">{record.warranty.description}</small></> : null}</td><td>{typeof status === 'string' && status in statusLabels ? <Badge value={status} /> : <span className="muted">{status}</span>}</td><td>{module === 'quotes' && record.quote ? date(record.quote.updatedAt) : module === 'payments' && data ? date((data as Payment).updatedAt) : record.warranty ? date(record.warranty.updatedAt) : '-'}</td><td><Link className="table-action" to={`/service-orders/${record.order.id}`} aria-label={`Abrir ${record.order.orderNumber}`}><ArrowRight size={16} /></Link></td></tr>;
+        return <tr key={record.order.id}><td><Link className="resource-name financial-order-link" to={`/service-orders/${record.order.id}`}>{record.order.orderNumber}<small>Ver detalhes da OS <ArrowRight size={12} /></small></Link></td><td>{record.order.customer.name}</td><td>{module === 'quotes' && record.quote ? <><strong className="financial-value">{money(record.quote.total)}</strong><small className="table-subtext">{record.quote.itemsCount} {record.quote.itemsCount === 1 ? 'item' : 'itens'}</small></> : module === 'payments' ? <><strong className="financial-value">{money(record.payments?.reduce((total, payment) => total + Number(payment.amount), 0) ?? 0)}</strong><small className="table-subtext">{record.payments?.length === 1 ? methodLabels[record.payments[0].method] : `${record.payments?.length} lançamentos`}</small></> : record.warranty ? <><span className="warranty-period">{date(record.warranty.startDate)} a {date(record.warranty.endDate)}</span><small className="table-subtext">{record.warranty.description}</small></> : null}</td><td>{typeof status === 'string' && status in statusLabels ? <Badge value={status} /> : <span className="muted">{status}</span>}</td><td>{module === 'quotes' && record.quote ? date(record.quote.updatedAt) : module === 'payments' && data ? date((data as { updatedAt: string }).updatedAt) : record.warranty ? date(record.warranty.updatedAt) : '-'}</td><td><Link className="table-action" to={`/service-orders/${record.order.id}`} aria-label={`Abrir ${record.order.orderNumber}`}><ArrowRight size={16} /></Link></td></tr>;
       })}</tbody></table></div>}
     </Card>
     {!loading && !error && records.length > 0 ? <p className="financial-list-note"><WalletCards size={15} /> Cadastros, edições e alterações de status são realizados na ordem de serviço correspondente.</p> : null}

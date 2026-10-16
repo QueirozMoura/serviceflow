@@ -1,7 +1,10 @@
 import { api } from './api';
+import type { QuoteOverviewRow } from '../types/overview';
 import type { CreateQuoteInput, QuoteResponse, QuoteStatus, ServiceItemInput, UpdateQuoteInput } from '../types/quote';
 
 export const quotesService = {
+  /** Lista agregada (uma requisição) usada pela tela de Orçamentos. */
+  listOverview: () => api.get<{ quotes: QuoteOverviewRow[] }>('/api/quotes'),
   create: (serviceOrderId: string, input: CreateQuoteInput = {}) => api.post<QuoteResponse>(`/api/service-orders/${serviceOrderId}/quote`, input),
   get: (serviceOrderId: string) => api.get<QuoteResponse>(`/api/service-orders/${serviceOrderId}/quote`),
   update: (serviceOrderId: string, input: UpdateQuoteInput) => api.patch<QuoteResponse>(`/api/service-orders/${serviceOrderId}/quote`, input),

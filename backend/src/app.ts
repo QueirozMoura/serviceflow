@@ -25,8 +25,10 @@ import { warrantyRoutes } from './routes/warranties.js';
 import { dashboardRoutes } from './routes/dashboard.js';
 import { messageRoutes } from './routes/messages.js';
 import { healthRoutes } from './routes/health.js';
+import { overviewRoutes } from './routes/overview.js';
+import type { OverviewRepository } from './modules/overview/repository.js';
 
-export function buildApp(options: { authRepository?: AuthRepository; customerRepository?: CustomerRepository; equipmentRepository?: EquipmentRepository; serviceOrderRepository?: ServiceOrderRepository; diagnosisRepository?: DiagnosisRepository; quoteRepository?: QuoteRepository; paymentRepository?: PaymentRepository; warrantyRepository?: WarrantyRepository; dashboardRepository?: DashboardRepository; messageRepository?: MessageRepository } = {}) {
+export function buildApp(options: { authRepository?: AuthRepository; customerRepository?: CustomerRepository; equipmentRepository?: EquipmentRepository; serviceOrderRepository?: ServiceOrderRepository; diagnosisRepository?: DiagnosisRepository; quoteRepository?: QuoteRepository; paymentRepository?: PaymentRepository; warrantyRepository?: WarrantyRepository; dashboardRepository?: DashboardRepository; messageRepository?: MessageRepository; overviewRepository?: OverviewRepository } = {}) {
   const app = Fastify({
     logger: env.NODE_ENV !== 'test',
     // Atras de um proxy reverso (nginx, plataformas de deploy) o IP real do
@@ -108,6 +110,11 @@ export function buildApp(options: { authRepository?: AuthRepository; customerRep
     prefix: '/api/dashboard',
     authRepository,
     dashboardRepository: options.dashboardRepository,
+  });
+  app.register(overviewRoutes, {
+    prefix: '/api',
+    authRepository,
+    overviewRepository: options.overviewRepository,
   });
   app.register(messageRoutes, {
     prefix: '/api/service-orders',

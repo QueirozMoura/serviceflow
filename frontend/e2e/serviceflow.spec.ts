@@ -242,6 +242,13 @@ test('applies role permissions: a technician is restricted and an admin promoted
   await expect(page.getByRole('button', { name: 'Aprovada' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Cancelada' })).toHaveCount(0);
 
+  // Listagens agregadas: o tecnico le orcamentos e garantias, mas nunca pagamentos (nem pela rota agregada).
+  expect((await page.request.get(`${api}/quotes`)).status()).toBe(200);
+  expect((await page.request.get(`${api}/warranties`)).status()).toBe(200);
+  const aggregatedPayments = await page.request.get(`${api}/payments?organizationId=forjado`);
+  expect(aggregatedPayments.status()).toBe(403);
+  expect(await aggregatedPayments.text()).not.toContain('Teclado');
+
   // Promovido a ADMIN no banco: a mesma sessao passa a ter pagamentos e exclusao apos recarregar.
   setUserRole(account.email, 'ADMIN');
   await page.goto('/dashboard');
@@ -265,4 +272,24 @@ test('applies role permissions: a technician is restricted and an admin promoted
   await page.getByRole('button', { name: 'Cancelada' }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Excluir' }).click();
   await expect(page.getByText('Status alterado para Cancelada.')).toBeVisible();
+
+  // Telas de modulo: uma requisicao agregada por tela e nenhuma chamada por OS.
+  expect((await page.request.post(`${api}/service-orders/${serviceOrder.id}/payments`, { data: { amount: '80.00', method: 'PIX' } })).status()).toBe(201);
+  for (const [path, heading, aggregated] of [['/quotes', 'Orçamentos', '/api/quotes'], ['/payments', 'Pagamentos', '/api/payments'], ['/warranties', 'Garantias', '/api/warranties']] as const) {
+    const requested: string[] = [];
+    const onRequest = (request: { url(): string }) => { if (request.url().includes('/api/')) requested.push(new URL(request.url()).pathname); };
+    page.on('request', onRequest);
+    await page.goto(path);
+    await expect(page.getByRole('heading', { name: heading, exact: true })).toBeVisible();
+    if (path === '/warranties') await expect(page.getByText('Nenhuma garantia cadastrada.')).toBeVisible();
+    else await expect(page.getByRole('row', { name: new RegExp(serviceOrder.orderNumber) })).toBeVisible();
+    page.off('request', onRequest);
+
+    const perOrder = requested.filter((pathname) => /^\/api\/service-orders(\/|$)/.test(pathname) && pathname !== '/api/service-orders/');
+    expect(perOrder, `${path}: chamadas por OS`).toEqual([]);
+    const calls = requested.filter((pathname) => pathname === aggregated).length;
+    // Em desenvolvimento o React StrictMode executa o efeito de montagem duas vezes; em producao e uma.
+    expect(calls, `${path}: requisicoes agregadas`).toBeGreaterThanOrEqual(1);
+    expect(calls, `${path}: requisicoes agregadas`).toBeLessThanOrEqual(2);
+  }
 });

@@ -109,6 +109,10 @@ const routes: RouteCase[] = [
   { method: 'DELETE', url: `/api/service-orders/${id}/warranty`, technicianDenied: true },
   { method: 'POST', url: `/api/service-orders/${id}/messages`, technicianDenied: false },
   { method: 'GET', url: '/api/dashboard', technicianDenied: false },
+  // Listagens agregadas: o tecnico le orcamentos e garantias, mas nunca pagamentos.
+  { method: 'GET', url: '/api/quotes', technicianDenied: false },
+  { method: 'GET', url: '/api/payments', technicianDenied: true },
+  { method: 'GET', url: '/api/warranties', technicianDenied: false },
 ];
 const label = (route: RouteCase) => `${route.method} ${route.url.replaceAll(id, ':id').replaceAll(other, ':sub')}${route.payload && 'status' in route.payload ? ` -> ${String(route.payload.status)}` : ''}`;
 
@@ -125,7 +129,7 @@ describe('role-based authorization', () => {
       authRepository: auth, dashboardRepository: dashboard,
       customerRepository: recordingRepository(), equipmentRepository: recordingRepository(), serviceOrderRepository: recordingRepository(),
       diagnosisRepository: recordingRepository(), quoteRepository: recordingRepository(), paymentRepository: recordingRepository(),
-      warrantyRepository: recordingRepository(), messageRepository: recordingRepository(),
+      warrantyRepository: recordingRepository(), messageRepository: recordingRepository(), overviewRepository: recordingRepository(),
     });
     await app.ready();
   }
