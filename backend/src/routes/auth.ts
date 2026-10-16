@@ -17,6 +17,7 @@ import {
   createUserSession,
   getPublicAccount,
   getPublicUser,
+  GoogleAccountNotLinkedError,
   isUniqueConstraintError,
   registerAccount,
   resolveGoogleUser,
@@ -129,11 +130,11 @@ export async function authRoutes(app: FastifyInstance, options: AuthRoutesOption
     const query = request.query as { code?: string; state?: string; error?: string };
     const failureRedirect = env.OAUTH_FAILURE_REDIRECT ?? env.CORS_ORIGIN.split(',')[0]?.trim() ?? '/';
 
-    const fail = (): void => {
+    const fail = (reason: 'oauth' | 'oauth_unlinked' = 'oauth'): void => {
       clearOAuthStateCookie(reply);
       clearOAuthReturnToCookie(reply);
       const separator = failureRedirect.includes('?') ? '&' : '?';
-      void reply.redirect(`${failureRedirect}${separator}error=oauth`);
+      void reply.redirect(`${failureRedirect}${separator}error=${reason}`);
     };
 
     if (!isGoogleOAuthEnabled()) {
@@ -153,6 +154,11 @@ export async function authRoutes(app: FastifyInstance, options: AuthRoutesOption
       const identity = await exchangeCodeForIdentity(getGoogleOAuthConfig(), query.code);
       user = await resolveGoogleUser(repository, identity);
     } catch (error) {
+      // Sem e-mail nem identificadores no log. Nenhuma sessao e criada e nada foi gravado.
+      if (error instanceof GoogleAccountNotLinkedError) {
+        request.log.warn('Google sign-in rejected: a local account already uses this e-mail');
+        return fail('oauth_unlinked');
+      }
       request.log.error({ err: error }, 'Google OAuth callback failed');
       return fail();
     }

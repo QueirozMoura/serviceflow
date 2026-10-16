@@ -6,6 +6,13 @@ import { Button } from '../../components/ui/Button';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { returnToFromState } from '../../utils/returnTo';
 
+// Motivos devolvidos pelo backend no retorno do Google. O segundo nao confirma nem detalha nenhuma conta: so orienta.
+function oauthErrorMessage(reason: string | null): string {
+  if (reason === 'oauth_unlinked') return 'Não foi possível entrar com o Google. Se você já tem uma conta, entre pelo método que usou ao criá-la (e-mail e senha).';
+  if (reason === 'oauth') return 'Não foi possível entrar com o Google. Tente novamente.';
+  return '';
+}
+
 export function Login() {
   const { login } = useAuth();
   const navigate = useNavigate();
@@ -13,7 +20,7 @@ export function Login() {
   const [searchParams] = useSearchParams();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState(searchParams.get('error') === 'oauth' ? 'Não foi possível entrar com o Google. Tente novamente.' : '');
+  const [error, setError] = useState(oauthErrorMessage(searchParams.get('error')));
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {

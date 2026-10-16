@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import bcrypt from 'bcryptjs';
 import { UserRole } from '@prisma/client';
 import type { FastifyInstance } from 'fastify';
 import type {
@@ -287,32 +288,115 @@ describe('google oauth routes', () => {
     expect(stored[0]?.passwordHash).toBeNull();
   });
 
-  it('links a Google identity to an existing email/password account', async () => {
-    repository.seedUser({
-      name: 'Existing',
-      email: 'existing@example.com',
-      passwordHash: 'hashed-value',
-    });
-    exchangeCodeForIdentity.mockResolvedValueOnce({
-      providerAccountId: 'google-999',
-      email: 'existing@example.com',
-      name: 'Existing',
+  describe('account linking is never automatic', () => {
+    const failure = 'https://serviceflow-wine-seven.vercel.app/login?error=oauth_unlinked';
+    let sequence = 0;
+    const callback = async (identity: { providerAccountId: string; email: string; name: string }) => {
+      exchangeCodeForIdentity.mockResolvedValueOnce(identity);
+      const state = `link-state-${++sequence}`;
+      return app.inject({ method: 'GET', url: `/api/auth/google/callback?code=valid-code&state=${state}`, cookies: { serviceflow_oauth_state: state } });
+    };
+    const sessionCookieOf = (response: { headers: Record<string, unknown> }) =>
+      String(response.headers['set-cookie'] ?? '').split(/,(?=[^;]+=)/).map((value) => value.trim().split(';')[0] ?? '').find((value) => value.startsWith('serviceflow_session=') && value.length > 'serviceflow_session='.length);
+    const snapshot = (email: string) => repository.findUsersByEmail(email).then((users) => JSON.stringify(users));
+
+    it('rejects a Google sign-in whose e-mail matches a local account that is not linked, changing nothing', async () => {
+      const local = repository.seedUser({ name: 'Existing', email: 'existing@example.com', passwordHash: 'hashed-value' });
+      const before = await snapshot('existing@example.com');
+
+      const response = await callback({ providerAccountId: 'google-999', email: 'existing@example.com', name: 'Existing' });
+
+      expect(response.statusCode).toBe(302);
+      expect(response.headers.location).toBe(failure);
+      expect(sessionCookieOf(response)).toBeUndefined();
+      expect(await repository.findUserByOAuthAccount('google', 'google-999')).toBeNull();
+      expect(await snapshot('existing@example.com')).toBe(before);
+      expect((await repository.findUsersByEmail('existing@example.com'))).toHaveLength(1);
+      expect(local.passwordHash).toBe('hashed-value');
     });
 
-    const response = await app.inject({
-      method: 'GET',
-      url: '/api/auth/google/callback?code=valid-code&state=ok-state-2',
-      cookies: { serviceflow_oauth_state: 'ok-state-2' },
+    it('does not reveal the registered e-mail or the existing organization in the redirect', async () => {
+      repository.seedUser({ name: 'Existing', email: 'private@example.com', passwordHash: 'hashed-value' });
+      const response = await callback({ providerAccountId: 'google-private', email: 'private@example.com', name: 'Someone' });
+
+      const location = String(response.headers.location);
+      expect(location).not.toContain('private');
+      expect(location).not.toContain('Seed Org');
+      expect(location).not.toContain('example.com');
+      expect(String(response.body)).not.toContain('private@example.com');
     });
 
-    expect(response.statusCode).toBe(302);
-    expect(response.headers.location).toBe('https://serviceflow-wine-seven.vercel.app/dashboard');
+    it('keeps an attacker who registered the victim e-mail out of the victim flow and the victim out of the attacker organization', async () => {
+      const passwordHash = await bcrypt.hash('AttackerPass1', 4);
+      const attacker = repository.seedUser({ name: 'Attacker', email: 'victim@example.com', passwordHash });
 
-    const users = await repository.findUsersByEmail('existing@example.com');
-    expect(users).toHaveLength(1);
-    // A senha original permanece intacta; o login por email/senha segue valido.
-    expect(users[0]?.passwordHash).toBe('hashed-value');
-    expect(await repository.findUserByOAuthAccount('google', 'google-999')).not.toBeNull();
+      const first = await callback({ providerAccountId: 'google-victim', email: 'victim@example.com', name: 'Victim' });
+      const retry = await callback({ providerAccountId: 'google-victim', email: 'victim@example.com', name: 'Victim' });
+
+      expect([first.headers.location, retry.headers.location]).toEqual([failure, failure]);
+      expect(sessionCookieOf(first)).toBeUndefined();
+      expect(sessionCookieOf(retry)).toBeUndefined();
+      expect(await repository.findUserByOAuthAccount('google', 'google-victim')).toBeNull();
+      // Nenhuma organizacao nova e a conta do atacante segue sem nenhuma identidade Google ligada.
+      expect((await repository.findUsersByEmail('victim@example.com')).map((user) => user.organizationId)).toEqual([attacker.organizationId]);
+
+      // O login por senha do dono da conta local continua funcionando e a conta permanece com a organizacao original.
+      const login = await app.inject({ method: 'POST', url: '/api/auth/login', payload: { email: 'victim@example.com', password: 'AttackerPass1' } });
+      expect(login.statusCode).toBe(200);
+      expect(login.json().user.organizationId).toBe(attacker.organizationId);
+      const wrong = await app.inject({ method: 'POST', url: '/api/auth/login', payload: { email: 'victim@example.com', password: 'WrongPass1' } });
+      expect(wrong.statusCode).toBe(401);
+    });
+
+    it('rejects an e-mail already used by an account created through another Google identity', async () => {
+      const created = await callback({ providerAccountId: 'google-first-owner', email: 'shared@example.com', name: 'First Owner' });
+      expect(created.statusCode).toBe(302);
+      expect(sessionCookieOf(created)).toBeDefined();
+
+      const other = await callback({ providerAccountId: 'google-second-identity', email: 'shared@example.com', name: 'Second' });
+
+      expect(other.headers.location).toBe(failure);
+      expect(sessionCookieOf(other)).toBeUndefined();
+      expect(await repository.findUserByOAuthAccount('google', 'google-second-identity')).toBeNull();
+      expect((await repository.findUsersByEmail('shared@example.com'))).toHaveLength(1);
+    });
+
+    it('keeps working for an identity that is already linked, even when the Google e-mail changed', async () => {
+      const local = repository.seedUser({ name: 'Linked', email: 'linked@example.com', passwordHash: 'hashed-value' });
+      await repository.linkOAuthAccount({ provider: 'google', providerAccountId: 'google-linked', userId: local.id, organizationId: local.organizationId });
+
+      const same = await callback({ providerAccountId: 'google-linked', email: 'linked@example.com', name: 'Linked' });
+      const changed = await callback({ providerAccountId: 'google-linked', email: 'new-address@example.com', name: 'Linked' });
+
+      for (const response of [same, changed]) {
+        expect(response.statusCode).toBe(302);
+        expect(response.headers.location).toBe('https://serviceflow-wine-seven.vercel.app/dashboard');
+        const cookie = sessionCookieOf(response) as string;
+        expect(cookie).toBeDefined();
+        const me = await app.inject({ method: 'GET', url: '/api/auth/me', headers: { cookie } });
+        expect(me.json().user).toMatchObject({ id: local.id, organizationId: local.organizationId, email: 'linked@example.com' });
+      }
+      expect(local.passwordHash).toBe('hashed-value');
+    });
+
+    it('still creates a new Google account (and organization) when no account uses the e-mail', async () => {
+      const response = await callback({ providerAccountId: 'google-brand-new', email: 'brand-new@example.com', name: 'Brand New' });
+
+      expect(response.headers.location).toBe('https://serviceflow-wine-seven.vercel.app/dashboard');
+      const cookie = sessionCookieOf(response) as string;
+      const me = await app.inject({ method: 'GET', url: '/api/auth/me', headers: { cookie } });
+      expect(me.json().user).toMatchObject({ email: 'brand-new@example.com', role: 'OWNER' });
+      expect(me.json().user.organization.name).toBe('Brand New (Google)');
+      expect((await repository.findUserByOAuthAccount('google', 'google-brand-new'))?.email).toBe('brand-new@example.com');
+    });
+
+    it('does not break the other failure paths: bad state and failed exchanges keep the generic reason', async () => {
+      const badState = await app.inject({ method: 'GET', url: '/api/auth/google/callback?code=x&state=other', cookies: { serviceflow_oauth_state: 'expected' } });
+      expect(badState.headers.location).toBe('https://serviceflow-wine-seven.vercel.app/login?error=oauth');
+      exchangeCodeForIdentity.mockRejectedValueOnce(new Error('unverified'));
+      const failed = await app.inject({ method: 'GET', url: '/api/auth/google/callback?code=x&state=s', cookies: { serviceflow_oauth_state: 's' } });
+      expect(failed.headers.location).toBe('https://serviceflow-wine-seven.vercel.app/login?error=oauth');
+    });
   });
 
   it('redirects to the failure URL when the token exchange throws', async () => {

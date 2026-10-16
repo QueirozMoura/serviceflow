@@ -59,26 +59,31 @@ export interface GoogleProfile {
 }
 
 /**
+ * Existe uma conta local com o e-mail do Google, mas sem vinculo com esta identidade. Nao e seguro vincular so porque
+ * os e-mails coincidem: o cadastro por senha nao comprova que quem criou a conta controla o e-mail, entao a vitima
+ * entraria na conta (e na organizacao) do atacante, que seguiria com a senha. O acesso e recusado sem alterar nada.
+ */
+export class GoogleAccountNotLinkedError extends Error {
+  constructor() {
+    super('Google identity is not linked to the existing account');
+    this.name = 'GoogleAccountNotLinkedError';
+  }
+}
+
+/**
  * Resolve o usuario para um perfil Google, sem criar senha artificial:
- * 1. Tenta pela identidade OAuth existente.
- * 2. Senao, vincula a um usuario com o mesmo email (login por senha continua valido).
- * 3. Senao, cria organizacao + usuario OWNER sem senha e vincula a identidade.
+ * 1. Identidade OAuth ja vinculada: entra na conta vinculada.
+ * 2. Existe conta local com o mesmo e-mail (com ou sem outra identidade): RECUSA, sem vincular nem escrever nada.
+ *    Vincular exigiria provar a posse da conta local (sessao autenticada + fluxo explicito), que nao existe ainda.
+ * 3. Nenhuma conta com o e-mail: cria organizacao + usuario OWNER sem senha e vincula a identidade.
  */
 export async function resolveGoogleUser(repository: AuthRepository, profile: GoogleProfile): Promise<AuthUserRecord> {
   const provider = 'google';
   const linked = await repository.findUserByOAuthAccount(provider, profile.providerAccountId);
   if (linked) return linked;
 
-  const existing = (await repository.findUsersByEmail(profile.email))[0];
-  if (existing) {
-    await repository.linkOAuthAccount({
-      provider,
-      providerAccountId: profile.providerAccountId,
-      userId: existing.id,
-      organizationId: existing.organizationId,
-    });
-    return existing;
-  }
+  const existing = await repository.findUsersByEmail(profile.email);
+  if (existing.length > 0) throw new GoogleAccountNotLinkedError();
 
   const { user } = await repository.createOrganizationWithOAuthUser({
     organizationName: `${profile.name} (Google)`,
