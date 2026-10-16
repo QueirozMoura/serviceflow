@@ -25,6 +25,12 @@ const orderInclude = {
   equipment: { select: { id: true, type: true, brand: true, model: true } },
 } as const;
 
+// FKs com ON DELETE RESTRICT geram SQLSTATE 23001, que o Prisma nao converte em P2003 (so 23503 vira P2003).
+export function isForeignKeyRestriction(error: unknown): boolean {
+  if (error instanceof Prisma.PrismaClientKnownRequestError) return error.code === 'P2003';
+  return error instanceof Prisma.PrismaClientUnknownRequestError && /code: "23001"|violates RESTRICT setting of foreign key constraint/.test(error.message);
+}
+
 function generateOrderNumber(): string {
   return `OS-${new Date().toISOString().slice(0, 10).replaceAll('-', '')}-${randomBytes(4).toString('hex').toUpperCase()}`;
 }
@@ -101,7 +107,7 @@ export class PrismaServiceOrderRepository implements ServiceOrderRepository {
       const result = await this.db.serviceOrder.deleteMany({ where: { id, organizationId } });
       return result.count > 0;
     } catch (error) {
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2003') throw new ServiceOrderInUseError();
+      if (isForeignKeyRestriction(error)) throw new ServiceOrderInUseError();
       throw error;
     }
   }

@@ -99,3 +99,46 @@ test('shows protected navigation and required-field validation without sending i
   await expect(page.getByRole('alert')).toContainText('Informe um nome válido');
   await expect(page).toHaveURL(/\/customers\/new$/);
 });
+
+test('registers and edits a diagnosis and respects the server rule when deleting an order', async ({ page, request }) => {
+  await login(page, request);
+  // Mesmo proxy do frontend, para reutilizar o cookie de sessão do navegador.
+  const api = '/api';
+  const customer = await (await page.request.post(`${api}/customers`, { data: { name: 'Cliente Diagnóstico E2E', phone: '11977776666' } })).json();
+  const equipment = await (await page.request.post(`${api}/equipment`, { data: { customerId: customer.customer.id, type: 'Notebook', brand: 'Lenovo', model: 'ThinkPad E2E' } })).json();
+  const created = await page.request.post(`${api}/service-orders`, { data: { customerId: customer.customer.id, equipmentId: equipment.equipment.id, problemDescription: 'Não carrega a bateria' } });
+  expect(created.status()).toBe(201);
+  const { serviceOrder } = await created.json();
+
+  await page.goto(`/service-orders/${serviceOrder.id}`);
+  await expect(page.getByText('Nenhum diagnóstico cadastrado.')).toBeVisible();
+  await page.getByRole('button', { name: 'Adicionar diagnóstico' }).click();
+  await page.getByRole('button', { name: 'Salvar diagnóstico' }).click();
+  await expect(page.getByRole('alert')).toContainText('pelo menos 2 caracteres');
+  await page.getByLabel('Descrição do diagnóstico *').fill('Circuito de carga danificado');
+  await page.getByLabel('Custo estimado').fill('1.234,56');
+  await page.getByRole('button', { name: 'Salvar diagnóstico' }).click();
+  await expect(page.getByText('Circuito de carga danificado')).toBeVisible();
+  await expect(page.getByText(/Custo estimado: R\$\s1\.234,56/)).toBeVisible();
+
+  await page.getByRole('button', { name: 'Editar diagnóstico' }).click();
+  await page.getByLabel('Descrição do diagnóstico *').fill('Circuito de carga e conector danificados');
+  await page.getByRole('button', { name: 'Salvar diagnóstico' }).click();
+  await expect(page.getByText('Circuito de carga e conector danificados')).toBeVisible();
+  await page.reload();
+  await expect(page.getByText('Circuito de carga e conector danificados')).toBeVisible();
+  await expect(page.getByText(/Custo estimado: R\$\s1\.234,56/)).toBeVisible();
+
+  await page.getByRole('button', { name: 'Excluir OS' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Cancelar' }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+
+  // Toda OS recebe histórico de status com FK RESTRICT; o backend responde 409 e a OS deve permanecer.
+  await page.getByRole('button', { name: 'Excluir OS' }).click();
+  const deletion = page.waitForResponse((response) => response.request().method() === 'DELETE' && response.url().endsWith(`/api/service-orders/${serviceOrder.id}`));
+  await page.getByRole('dialog').getByRole('button', { name: 'Excluir' }).click();
+  expect((await deletion).status()).toBe(409);
+  await expect(page.getByText(/possui histórico ou registros vinculados/)).toBeVisible();
+  await expect(page).toHaveURL(new RegExp(`/service-orders/${serviceOrder.id}$`));
+  expect((await page.request.get(`${api}/service-orders/${serviceOrder.id}`)).status()).toBe(200);
+});

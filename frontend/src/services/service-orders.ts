@@ -11,5 +11,6 @@ export const serviceOrdersService = {
   getDiagnosis: (id: string) => api.get<DiagnosisResponse>(`/api/service-orders/${id}/diagnosis`),
   createDiagnosis: (id: string, input: { description: string; estimatedCost?: string | null }) => api.post<DiagnosisResponse>(`/api/service-orders/${id}/diagnosis`, input),
   updateDiagnosis: (id: string, input: { description?: string; estimatedCost?: string | null }) => api.patch<DiagnosisResponse>(`/api/service-orders/${id}/diagnosis`, input),
+  removeDiagnosis: (id: string) => api.delete<void>(`/api/service-orders/${id}/diagnosis`),
   generateMessage: (id: string, type: MessageType) => api.post<MessageResponse>(`/api/service-orders/${id}/messages`, { type }),
 };
