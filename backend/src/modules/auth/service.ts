@@ -4,6 +4,7 @@ import { env } from '../../config/env.js';
 import { createSessionToken, hashSessionToken, sessionExpiresAt } from './session.js';
 import type { AuthRepository, AuthUserRecord, CreatedAccount } from './repository.js';
 import type { LoginInput, RegisterInput } from './schemas.js';
+import { permissionsFor } from './permissions.js';
 
 export function makeOrganizationSlug(name: string): string {
   const slug = name
@@ -102,6 +103,8 @@ export function getPublicUser(user: AuthUserRecord) {
     email: user.email,
     role: user.role,
     organizationId: user.organizationId,
+    // Permissoes efetivas calculadas no servidor; o frontend as usa so para exibir/ocultar acoes.
+    permissions: permissionsFor(user.role),
   };
 }
 

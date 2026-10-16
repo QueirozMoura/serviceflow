@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '../lib/prisma.js';
 import { authenticate } from '../middlewares/authenticate.js';
+import { authorize } from '../middlewares/authorize.js';
 import type { AuthRepository } from '../modules/auth/repository.js';
 import { generateMessage, MessageDataUnavailableError } from '../modules/messages/message-generator.js';
 import { PrismaMessageRepository, type MessageRepository } from '../modules/messages/repository.js';
@@ -13,7 +14,7 @@ export async function messageRoutes(app: FastifyInstance, options: MessageRoutes
   if (!options.authRepository) throw new Error('Message routes require an auth repository');
   const requireAuthentication = authenticate(options.authRepository);
 
-  app.post('/:serviceOrderId/messages', { preHandler: requireAuthentication }, async (request, reply) => {
+  app.post('/:serviceOrderId/messages', { preHandler: [requireAuthentication, authorize('messages:generate')] }, async (request, reply) => {
     const parsed = createMessageSchema.safeParse(request.body);
     if (!parsed.success) return reply.status(400).send({ statusCode: 400, error: 'Bad Request', message: 'Invalid message type' });
     if (!request.user) return reply.status(401).send({ statusCode: 401, error: 'Unauthorized', message: 'Authentication required' });

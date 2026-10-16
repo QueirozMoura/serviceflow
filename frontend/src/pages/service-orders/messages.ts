@@ -3,6 +3,7 @@ import { ApiError } from '../../services/api';
 /** Traduz falhas de DELETE /api/service-orders/:id sem tentar contornar as restrições do servidor. */
 export function serviceOrderDeleteErrorMessage(cause: unknown): string {
   if (!(cause instanceof ApiError)) return 'Não foi possível excluir a ordem de serviço. Verifique sua conexão e tente novamente.';
+  if (cause.status === 403) return 'Você não tem permissão para excluir ordens de serviço.';
   if (cause.status === 409) return 'Esta OS possui histórico ou registros vinculados e não pode ser excluída. Para encerrar o atendimento, altere o status para Cancelada.';
   if (cause.status === 404) return 'Esta ordem de serviço não foi encontrada. Ela pode já ter sido excluída.';
   if (cause.status === 401) return 'Sua sessão expirou. Entre novamente.';
@@ -11,6 +12,7 @@ export function serviceOrderDeleteErrorMessage(cause: unknown): string {
 
 export function diagnosisErrorMessage(cause: unknown): string {
   if (!(cause instanceof ApiError)) return 'Não foi possível salvar o diagnóstico. Verifique sua conexão e tente novamente.';
+  if (cause.status === 403) return 'Você não tem permissão para alterar o diagnóstico.';
   if (cause.status === 400) return 'Revise os dados do diagnóstico.';
   if (cause.status === 409) return 'Esta OS já possui um diagnóstico registrado. Revise os dados e salve novamente para atualizá-lo.';
   if (cause.status === 404) return 'O diagnóstico não existe mais. Salve novamente para registrar um novo.';

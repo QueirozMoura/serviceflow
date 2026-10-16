@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
 import type { User } from '../../types/auth';
+import { hasPermission } from '../../utils/permissions';
 
 interface SidebarProps {
   user: User;
@@ -33,7 +34,7 @@ const groups = [
       { label: 'Equipamentos', icon: Boxes, to: '/equipment' },
       { label: 'Ordens de serviço', icon: ClipboardList, to: '/service-orders' },
       { label: 'Orçamentos', icon: FileText, to: '/quotes' },
-      { label: 'Pagamentos', icon: BadgeDollarSign, to: '/payments' },
+      { label: 'Pagamentos', icon: BadgeDollarSign, to: '/payments', permission: 'payments:read' },
       { label: 'Garantias', icon: ShieldCheck, to: '/warranties' },
     ],
   },
@@ -43,7 +44,7 @@ const groups = [
   },
 ];
 
-type NavigationItem = { label: string; icon: typeof LayoutDashboard; to?: string };
+type NavigationItem = { label: string; icon: typeof LayoutDashboard; to?: string; permission?: string };
 
 export function Sidebar({ user, isOpen, onClose, onLogout }: SidebarProps) {
   return (
@@ -61,7 +62,7 @@ export function Sidebar({ user, isOpen, onClose, onLogout }: SidebarProps) {
           {groups.map((group) => (
             <div className="nav-group" key={group.label}>
               <p className="nav-label">{group.label}</p>
-              {group.items.map((item: NavigationItem) => {
+              {group.items.filter((item: NavigationItem) => !item.permission || hasPermission(user, item.permission)).map((item: NavigationItem) => {
                 const Icon = item.icon;
                 return item.to ? (
                   <NavLink className={({ isActive }) => `nav-item ${isActive ? 'nav-item-active' : ''}`} end to={item.to} key={item.label} onClick={onClose}>

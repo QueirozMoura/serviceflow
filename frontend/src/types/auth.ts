@@ -12,6 +12,8 @@ export interface User {
   role: UserRole | string;
   organizationId: string;
   organization?: Organization;
+  /** Permissões efetivas do papel, calculadas pelo backend (somente para a interface). */
+  permissions?: string[];
 }
 
 export interface AuthResponse {

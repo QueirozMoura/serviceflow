@@ -3,7 +3,9 @@ import type { FastifyInstance, FastifyReply } from 'fastify';
 import { PrismaClient } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
 import { authenticate } from '../middlewares/authenticate.js';
+import { authorize, ensurePermission } from '../middlewares/authorize.js';
 import type { AuthRepository } from '../modules/auth/repository.js';
+import { serviceOrderStatusPermission } from '../modules/auth/permissions.js';
 import { PrismaServiceOrderRepository, ServiceOrderInUseError, type ServiceOrderRepository } from '../modules/service-orders/repository.js';
 import { createServiceOrderSchema, serviceOrderStatusQuerySchema, updateServiceOrderSchema, updateServiceOrderStatusSchema } from '../modules/service-orders/schemas.js';
 
@@ -33,7 +35,7 @@ export async function serviceOrderRoutes(app: FastifyInstance, options: ServiceO
   if (!options.authRepository) throw new Error('Service order routes require an auth repository');
   const requireAuthentication = authenticate(options.authRepository);
 
-  app.post('/', { preHandler: requireAuthentication }, async (request, reply) => {
+  app.post('/', { preHandler: [requireAuthentication, authorize('serviceOrders:write')] }, async (request, reply) => {
     const parsed = createServiceOrderSchema.safeParse(request.body);
     if (!parsed.success) return reply.status(400).send({ statusCode: 400, error: 'Bad Request', message: 'Invalid service order data' });
     if (!request.user) return reply.status(401).send({ statusCode: 401, error: 'Unauthorized', message: 'Authentication required' });
@@ -43,7 +45,7 @@ export async function serviceOrderRoutes(app: FastifyInstance, options: ServiceO
     return reply.status(201).send({ serviceOrder });
   });
 
-  app.get('/', { preHandler: requireAuthentication }, async (request, reply) => {
+  app.get('/', { preHandler: [requireAuthentication, authorize('serviceOrders:read')] }, async (request, reply) => {
     if (!request.user) return reply.status(401).send({ statusCode: 401, error: 'Unauthorized', message: 'Authentication required' });
     const query = request.query as { status?: string; customerId?: string; equipmentId?: string };
     const parsed = serviceOrderStatusQuerySchema.safeParse({ status: query.status });
@@ -55,17 +57,19 @@ export async function serviceOrderRoutes(app: FastifyInstance, options: ServiceO
     return reply.send({ serviceOrders });
   });
 
-  app.get('/:id', { preHandler: requireAuthentication }, async (request, reply) => {
+  app.get('/:id', { preHandler: [requireAuthentication, authorize('serviceOrders:read')] }, async (request, reply) => {
     if (!request.user) return reply.status(401).send({ statusCode: 401, error: 'Unauthorized', message: 'Authentication required' });
     const serviceOrder = await repository.findById(request.user.organizationId, (request.params as { id: string }).id);
     if (!serviceOrder) return notFound(reply);
     return reply.send({ serviceOrder });
   });
 
-  app.patch('/:id/status', { preHandler: requireAuthentication }, async (request, reply) => {
+  app.patch('/:id/status', { preHandler: [requireAuthentication, authorize('serviceOrders:write')] }, async (request, reply) => {
     const parsed = updateServiceOrderStatusSchema.safeParse(request.body);
     if (!parsed.success) return reply.status(400).send({ statusCode: 400, error: 'Bad Request', message: 'Invalid service order status' });
     if (!request.user) return reply.status(401).send({ statusCode: 401, error: 'Unauthorized', message: 'Authentication required' });
+    // Cancelar exige permissao propria; checado antes de consultar a OS para o 403 nao revelar se ela existe.
+    if (!ensurePermission(request, reply, serviceOrderStatusPermission(parsed.data.status))) return reply;
     const current = await repository.findById(request.user.organizationId, (request.params as { id: string }).id);
     if (!current) return notFound(reply);
     if (!transitions[current.status].includes(parsed.data.status)) return reply.status(409).send({ statusCode: 409, error: 'Conflict', message: 'Invalid service order status transition' });
@@ -75,7 +79,7 @@ export async function serviceOrderRoutes(app: FastifyInstance, options: ServiceO
     return reply.send({ serviceOrder });
   });
 
-  app.patch('/:id', { preHandler: requireAuthentication }, async (request, reply) => {
+  app.patch('/:id', { preHandler: [requireAuthentication, authorize('serviceOrders:write')] }, async (request, reply) => {
     const parsed = updateServiceOrderSchema.safeParse(request.body);
     if (!parsed.success) return reply.status(400).send({ statusCode: 400, error: 'Bad Request', message: 'Invalid service order data' });
     if (!request.user) return reply.status(401).send({ statusCode: 401, error: 'Unauthorized', message: 'Authentication required' });
@@ -90,7 +94,7 @@ export async function serviceOrderRoutes(app: FastifyInstance, options: ServiceO
     return reply.send({ serviceOrder });
   });
 
-  app.delete('/:id', { preHandler: requireAuthentication }, async (request, reply) => {
+  app.delete('/:id', { preHandler: [requireAuthentication, authorize('serviceOrders:delete')] }, async (request, reply) => {
     if (!request.user) return reply.status(401).send({ statusCode: 401, error: 'Unauthorized', message: 'Authentication required' });
     try {
       const deleted = await repository.delete(request.user.organizationId, (request.params as { id: string }).id);

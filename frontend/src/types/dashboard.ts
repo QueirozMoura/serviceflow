@@ -12,10 +12,11 @@ export interface DashboardResponse {
     pendingTotal: string;
     approvedTotal: string;
   };
+  /** null quando o papel do usuário não pode ler pagamentos (o backend omite a receita). */
   payments: {
     byStatus: DashboardCountMap;
     paidTotal: string;
-  };
+  } | null;
   warranties: {
     active: number;
     expired: number;

@@ -31,7 +31,8 @@ function buildMetrics(data: DashboardResponse): Metric[] {
     { label: 'Ordens entregues', value: integer(summary.deliveredOrders), icon: CheckCircle2, color: 'green' },
     { label: 'Orçamentos aguardando', value: integer(summary.pendingQuotes), hint: `${money(summary.pendingQuotesTotal)} em aberto`, icon: FileText, color: 'rose' },
     { label: 'Orçamentos aprovados', value: money(summary.approvedQuotesTotal), hint: plural(summary.approvedQuotes, 'orçamento', 'orçamentos'), icon: FileCheck2, color: 'teal' },
-    { label: 'Total recebido', value: money(summary.paidTotal), hint: plural(summary.paidPayments, 'pagamento pago', 'pagamentos pagos'), icon: BadgeDollarSign, color: 'green' },
+    // payments === null: o backend omitiu a receita porque o papel não pode ler pagamentos. Valor ausente continua "Não informado".
+    ...(data.payments === null ? [] : [{ label: 'Total recebido', value: money(summary.paidTotal), hint: plural(summary.paidPayments ?? 0, 'pagamento pago', 'pagamentos pagos'), icon: BadgeDollarSign, color: 'green' }]),
     { label: 'Clientes', value: integer(data.customers.total), icon: Users, color: 'blue' },
     { label: 'Equipamentos', value: integer(data.equipment.total), icon: Boxes, color: 'teal' },
     { label: 'Garantias ativas', value: integer(data.warranties.active), icon: ShieldCheck, color: 'violet' },

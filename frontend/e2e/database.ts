@@ -52,6 +52,12 @@ export function prepareE2EDatabase(): void {
   });
 }
 
+/** Nao existe gestao de usuarios; o E2E altera o papel direto no banco E2E (descartavel) para testar OWNER/ADMIN/TECHNICIAN. */
+export function setUserRole(email: string, role: 'OWNER' | 'ADMIN' | 'TECHNICIAN'): void {
+  if (!/^[a-z0-9._-]+@example\.com$/.test(email)) throw new Error('setUserRole only accepts generated @example.com addresses');
+  runPsql(getE2EDatabaseUrl(), `UPDATE "User" SET "role" = '${role}' WHERE "email" = '${email}'`);
+}
+
 export function destroyE2EDatabase(): void {
   runPsql(getMaintenanceUrl(), `DROP DATABASE IF EXISTS "${E2E_DATABASE_NAME}" WITH (FORCE)`);
 }

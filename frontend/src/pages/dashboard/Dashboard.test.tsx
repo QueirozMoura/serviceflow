@@ -86,4 +86,14 @@ describe('Dashboard', () => {
     await screen.findByText('Total de ordens');
     await waitFor(() => expect(apiMock.get).toHaveBeenCalledTimes(2));
   });
+
+  it('omits the received total when the server withholds payments for the role', async () => {
+    apiMock.get.mockResolvedValue({ ...data, payments: null });
+    renderPage();
+
+    await screen.findByText('Total de ordens', { selector: '.metric-card p' });
+    expect(screen.queryByText('Total recebido', { selector: '.metric-card p' })).toBeNull();
+    expect(screen.getByText('Orçamentos aprovados', { selector: '.metric-card p' })).toBeTruthy();
+    expect(screen.queryByText('Não informado')).toBeNull();
+  });
 });

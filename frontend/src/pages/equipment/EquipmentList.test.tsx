@@ -8,6 +8,8 @@ const equipmentServiceMock = vi.hoisted(() => ({ list: vi.fn(), remove: vi.fn() 
 const customerServiceMock = vi.hoisted(() => ({ list: vi.fn() }));
 vi.mock('../../services/equipment', () => ({ equipmentService: equipmentServiceMock }));
 vi.mock('../../services/customers', () => ({ customersService: customerServiceMock }));
+const authMock = vi.hoisted(() => ({ denied: new Set<string>() }));
+vi.mock('../../contexts/AuthContext', () => ({ useAuth: () => ({ can: (permission: string) => !authMock.denied.has(permission) }) }));
 
 import { EquipmentList } from './EquipmentList';
 
@@ -26,6 +28,7 @@ function renderPage() {
 
 describe('EquipmentList', () => {
   beforeEach(() => {
+    authMock.denied.clear();
     vi.clearAllMocks();
     customerServiceMock.list.mockResolvedValue({ customers: [customer] });
     equipmentServiceMock.list.mockResolvedValue({ equipment: [equipment] });
@@ -53,5 +56,20 @@ describe('EquipmentList', () => {
 
     expect((await screen.findByRole('alert')).textContent).toContain('Não foi possível carregar os equipamentos');
     expect(screen.getByRole('button', { name: 'Tentar novamente' })).toBeTruthy();
+  });
+
+  it('hides the delete action from a role without equipment:delete', async () => {
+    authMock.denied.add('equipment:delete');
+    renderPage();
+
+    await screen.findByText('Dell Inspiron');
+    expect(screen.queryByRole('button', { name: 'Excluir equipamento' })).toBeNull();
+  });
+
+  it('shows the delete action to a role with equipment:delete', async () => {
+    renderPage();
+
+    await screen.findByText('Dell Inspiron');
+    expect(screen.getByRole('button', { name: 'Excluir equipamento' })).toBeTruthy();
   });
 });

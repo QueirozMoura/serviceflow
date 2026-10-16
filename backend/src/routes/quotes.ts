@@ -3,7 +3,9 @@ import type { FastifyInstance, FastifyReply } from 'fastify';
 import { PrismaClient } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
 import { authenticate } from '../middlewares/authenticate.js';
+import { authorize, ensurePermission } from '../middlewares/authorize.js';
 import type { AuthRepository } from '../modules/auth/repository.js';
+import { quoteStatusPermission } from '../modules/auth/permissions.js';
 import { PrismaQuoteRepository, QuoteAlreadyExistsError, QuoteInUseError, QuoteNotFoundError, type QuoteRepository } from '../modules/quotes/repository.js';
 import { createQuoteSchema, createServiceItemSchema, updateQuoteSchema, updateQuoteStatusSchema, updateServiceItemSchema } from '../modules/quotes/schemas.js';
 
@@ -25,7 +27,7 @@ export async function quoteRoutes(app: FastifyInstance, options: QuoteRoutesOpti
     return { organizationId: request.user.organizationId, serviceOrderId };
   };
 
-  app.post('/:serviceOrderId/quote', { preHandler: requireAuthentication }, async (request, reply) => {
+  app.post('/:serviceOrderId/quote', { preHandler: [requireAuthentication, authorize('quotes:write')] }, async (request, reply) => {
     const parsed = createQuoteSchema.safeParse(request.body);
     if (!parsed.success) return reply.status(400).send({ statusCode: 400, error: 'Bad Request', message: 'Invalid quote data' });
     const scope = await getScope(request, reply); if (!scope) return;
@@ -33,14 +35,14 @@ export async function quoteRoutes(app: FastifyInstance, options: QuoteRoutesOpti
     catch (error) { if (error instanceof QuoteAlreadyExistsError) return reply.status(409).send({ statusCode: 409, error: 'Conflict', message: 'Quote already exists' }); throw error; }
   });
 
-  app.get('/:serviceOrderId/quote', { preHandler: requireAuthentication }, async (request, reply) => {
+  app.get('/:serviceOrderId/quote', { preHandler: [requireAuthentication, authorize('quotes:read')] }, async (request, reply) => {
     const scope = await getScope(request, reply); if (!scope) return;
     const quote = await repository.findByServiceOrder(scope.organizationId, scope.serviceOrderId);
     if (!quote) return notFound(reply);
     return reply.send({ quote });
   });
 
-  app.patch('/:serviceOrderId/quote', { preHandler: requireAuthentication }, async (request, reply) => {
+  app.patch('/:serviceOrderId/quote', { preHandler: [requireAuthentication, authorize('quotes:write')] }, async (request, reply) => {
     const parsed = updateQuoteSchema.safeParse(request.body);
     if (!parsed.success) return reply.status(400).send({ statusCode: 400, error: 'Bad Request', message: 'Invalid quote data' });
     const scope = await getScope(request, reply); if (!scope) return;
@@ -49,9 +51,11 @@ export async function quoteRoutes(app: FastifyInstance, options: QuoteRoutesOpti
     return reply.send({ quote });
   });
 
-  app.patch('/:serviceOrderId/quote/status', { preHandler: requireAuthentication }, async (request, reply) => {
+  app.patch('/:serviceOrderId/quote/status', { preHandler: [requireAuthentication, authorize('quotes:write')] }, async (request, reply) => {
     const parsed = updateQuoteStatusSchema.safeParse(request.body);
     if (!parsed.success) return reply.status(400).send({ statusCode: 400, error: 'Bad Request', message: 'Invalid quote status' });
+    // Aprovar/rejeitar exige permissao propria; checado antes de consultar a OS/orcamento (sem vazar existencia).
+    if (!ensurePermission(request, reply, quoteStatusPermission(parsed.data.status))) return reply;
     const scope = await getScope(request, reply); if (!scope) return;
     const current = await repository.findByServiceOrder(scope.organizationId, scope.serviceOrderId);
     if (!current) return notFound(reply);
@@ -59,20 +63,20 @@ export async function quoteRoutes(app: FastifyInstance, options: QuoteRoutesOpti
     return reply.send({ quote: await repository.updateStatus(scope.organizationId, scope.serviceOrderId, parsed.data.status) });
   });
 
-  app.delete('/:serviceOrderId/quote', { preHandler: requireAuthentication }, async (request, reply) => {
+  app.delete('/:serviceOrderId/quote', { preHandler: [requireAuthentication, authorize('quotes:delete')] }, async (request, reply) => {
     const scope = await getScope(request, reply); if (!scope) return;
     try { const deleted = await repository.delete(scope.organizationId, scope.serviceOrderId); if (!deleted) return notFound(reply); return reply.status(204).send(); }
     catch (error) { if (error instanceof QuoteInUseError) return reply.status(409).send({ statusCode: 409, error: 'Conflict', message: 'Quote has related items' }); throw error; }
   });
 
-  app.post('/:serviceOrderId/quote/items', { preHandler: requireAuthentication }, async (request, reply) => {
+  app.post('/:serviceOrderId/quote/items', { preHandler: [requireAuthentication, authorize('quotes:write')] }, async (request, reply) => {
     const parsed = createServiceItemSchema.safeParse(request.body); if (!parsed.success) return reply.status(400).send({ statusCode: 400, error: 'Bad Request', message: 'Invalid service item data' });
     const scope = await getScope(request, reply); if (!scope) return;
     try { return reply.status(201).send({ quote: await repository.addItem(scope.organizationId, scope.serviceOrderId, parsed.data) }); }
     catch (error) { if (error instanceof QuoteNotFoundError) return notFound(reply); throw error; }
   });
 
-  app.patch('/:serviceOrderId/quote/items/:itemId', { preHandler: requireAuthentication }, async (request, reply) => {
+  app.patch('/:serviceOrderId/quote/items/:itemId', { preHandler: [requireAuthentication, authorize('quotes:write')] }, async (request, reply) => {
     const parsed = updateServiceItemSchema.safeParse(request.body); if (!parsed.success) return reply.status(400).send({ statusCode: 400, error: 'Bad Request', message: 'Invalid service item data' });
     const scope = await getScope(request, reply); if (!scope) return;
     const quote = await repository.updateItem(scope.organizationId, scope.serviceOrderId, (request.params as { itemId: string }).itemId, parsed.data);
@@ -80,7 +84,7 @@ export async function quoteRoutes(app: FastifyInstance, options: QuoteRoutesOpti
     return reply.send({ quote });
   });
 
-  app.delete('/:serviceOrderId/quote/items/:itemId', { preHandler: requireAuthentication }, async (request, reply) => {
+  app.delete('/:serviceOrderId/quote/items/:itemId', { preHandler: [requireAuthentication, authorize('quotes:write')] }, async (request, reply) => {
     const scope = await getScope(request, reply); if (!scope) return;
     const quote = await repository.deleteItem(scope.organizationId, scope.serviceOrderId, (request.params as { itemId: string }).itemId);
     if (!quote) return notFound(reply);

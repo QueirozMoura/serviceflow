@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyReply } from 'fastify';
 import { PrismaClient } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
 import { authenticate } from '../middlewares/authenticate.js';
+import { authorize } from '../middlewares/authorize.js';
 import type { AuthRepository } from '../modules/auth/repository.js';
 import { EquipmentInUseError, PrismaEquipmentRepository, type EquipmentRepository } from '../modules/equipment/repository.js';
 import { createEquipmentSchema, updateEquipmentSchema } from '../modules/equipment/schemas.js';
@@ -25,7 +26,7 @@ export async function equipmentRoutes(app: FastifyInstance, options: EquipmentRo
   if (!options.authRepository) throw new Error('Equipment routes require an auth repository');
   const requireAuthentication = authenticate(options.authRepository);
 
-  app.post('/', { preHandler: requireAuthentication }, async (request, reply) => {
+  app.post('/', { preHandler: [requireAuthentication, authorize('equipment:write')] }, async (request, reply) => {
     const parsed = createEquipmentSchema.safeParse(request.body);
     if (!parsed.success) return reply.status(400).send({ statusCode: 400, error: 'Bad Request', message: 'Invalid equipment data' });
     if (!request.user) return reply.status(401).send({ statusCode: 401, error: 'Unauthorized', message: 'Authentication required' });
@@ -35,7 +36,7 @@ export async function equipmentRoutes(app: FastifyInstance, options: EquipmentRo
     return reply.status(201).send({ equipment });
   });
 
-  app.get('/', { preHandler: requireAuthentication }, async (request, reply) => {
+  app.get('/', { preHandler: [requireAuthentication, authorize('equipment:read')] }, async (request, reply) => {
     if (!request.user) return reply.status(401).send({ statusCode: 401, error: 'Unauthorized', message: 'Authentication required' });
     const customerId = (request.query as { customerId?: string }).customerId;
     if (customerId && !/^[0-9a-f-]{36}$/i.test(customerId)) return invalidCustomer(reply);
@@ -45,14 +46,14 @@ export async function equipmentRoutes(app: FastifyInstance, options: EquipmentRo
     return reply.send({ equipment });
   });
 
-  app.get('/:id', { preHandler: requireAuthentication }, async (request, reply) => {
+  app.get('/:id', { preHandler: [requireAuthentication, authorize('equipment:read')] }, async (request, reply) => {
     if (!request.user) return reply.status(401).send({ statusCode: 401, error: 'Unauthorized', message: 'Authentication required' });
     const equipment = await repository.findById(request.user.organizationId, (request.params as { id: string }).id);
     if (!equipment) return notFound(reply);
     return reply.send({ equipment });
   });
 
-  app.patch('/:id', { preHandler: requireAuthentication }, async (request, reply) => {
+  app.patch('/:id', { preHandler: [requireAuthentication, authorize('equipment:write')] }, async (request, reply) => {
     const parsed = updateEquipmentSchema.safeParse(request.body);
     if (!parsed.success) return reply.status(400).send({ statusCode: 400, error: 'Bad Request', message: 'Invalid equipment data' });
     if (!request.user) return reply.status(401).send({ statusCode: 401, error: 'Unauthorized', message: 'Authentication required' });
@@ -63,7 +64,7 @@ export async function equipmentRoutes(app: FastifyInstance, options: EquipmentRo
     return reply.send({ equipment });
   });
 
-  app.delete('/:id', { preHandler: requireAuthentication }, async (request, reply) => {
+  app.delete('/:id', { preHandler: [requireAuthentication, authorize('equipment:delete')] }, async (request, reply) => {
     if (!request.user) return reply.status(401).send({ statusCode: 401, error: 'Unauthorized', message: 'Authentication required' });
     try {
       const deleted = await repository.delete(request.user.organizationId, (request.params as { id: string }).id);

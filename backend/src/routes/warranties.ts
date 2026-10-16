@@ -3,6 +3,7 @@ import type { FastifyInstance, FastifyReply } from 'fastify';
 import { PrismaClient } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
 import { authenticate } from '../middlewares/authenticate.js';
+import { authorize } from '../middlewares/authorize.js';
 import type { AuthRepository } from '../modules/auth/repository.js';
 import { PrismaWarrantyRepository, WarrantyAlreadyExistsError, WarrantyImmutableError, WarrantyInUseError, type WarrantyRepository } from '../modules/warranties/repository.js';
 import { createWarrantySchema, updateWarrantySchema, updateWarrantyStatusSchema } from '../modules/warranties/schemas.js';
@@ -25,7 +26,7 @@ export async function warrantyRoutes(app: FastifyInstance, options: WarrantyRout
     return { organizationId: request.user.organizationId, serviceOrderId, status };
   };
 
-  app.post('/:serviceOrderId/warranty', { preHandler: requireAuthentication }, async (request, reply) => {
+  app.post('/:serviceOrderId/warranty', { preHandler: [requireAuthentication, authorize('warranties:write')] }, async (request, reply) => {
     const parsed = createWarrantySchema.safeParse(request.body);
     if (!parsed.success) return reply.status(400).send({ statusCode: 400, error: 'Bad Request', message: 'Invalid warranty data' });
     const scope = await getScope(request, reply); if (!scope) return;
@@ -34,14 +35,14 @@ export async function warrantyRoutes(app: FastifyInstance, options: WarrantyRout
     catch (error) { if (error instanceof WarrantyAlreadyExistsError) return reply.status(409).send({ statusCode: 409, error: 'Conflict', message: 'Warranty already exists' }); throw error; }
   });
 
-  app.get('/:serviceOrderId/warranty', { preHandler: requireAuthentication }, async (request, reply) => {
+  app.get('/:serviceOrderId/warranty', { preHandler: [requireAuthentication, authorize('warranties:read')] }, async (request, reply) => {
     const scope = await getScope(request, reply); if (!scope) return;
     const warranty = await repository.findByServiceOrder(scope.organizationId, scope.serviceOrderId);
     if (!warranty) return notFound(reply);
     return reply.send({ warranty });
   });
 
-  app.patch('/:serviceOrderId/warranty', { preHandler: requireAuthentication }, async (request, reply) => {
+  app.patch('/:serviceOrderId/warranty', { preHandler: [requireAuthentication, authorize('warranties:write')] }, async (request, reply) => {
     const parsed = updateWarrantySchema.safeParse(request.body);
     if (!parsed.success) return reply.status(400).send({ statusCode: 400, error: 'Bad Request', message: 'Invalid warranty data' });
     const scope = await getScope(request, reply); if (!scope) return;
@@ -54,7 +55,7 @@ export async function warrantyRoutes(app: FastifyInstance, options: WarrantyRout
     catch (error) { if (error instanceof WarrantyImmutableError) return reply.status(409).send({ statusCode: 409, error: 'Conflict', message: 'Warranty is immutable' }); throw error; }
   });
 
-  app.patch('/:serviceOrderId/warranty/status', { preHandler: requireAuthentication }, async (request, reply) => {
+  app.patch('/:serviceOrderId/warranty/status', { preHandler: [requireAuthentication, authorize('warranties:status')] }, async (request, reply) => {
     const parsed = updateWarrantyStatusSchema.safeParse(request.body);
     if (!parsed.success) return reply.status(400).send({ statusCode: 400, error: 'Bad Request', message: 'Invalid warranty status' });
     const scope = await getScope(request, reply); if (!scope) return;
@@ -64,7 +65,7 @@ export async function warrantyRoutes(app: FastifyInstance, options: WarrantyRout
     return reply.send({ warranty: await repository.updateStatus(scope.organizationId, scope.serviceOrderId, parsed.data.status) });
   });
 
-  app.delete('/:serviceOrderId/warranty', { preHandler: requireAuthentication }, async (request, reply) => {
+  app.delete('/:serviceOrderId/warranty', { preHandler: [requireAuthentication, authorize('warranties:delete')] }, async (request, reply) => {
     const scope = await getScope(request, reply); if (!scope) return;
     try { const deleted = await repository.delete(scope.organizationId, scope.serviceOrderId); if (!deleted) return notFound(reply); return reply.status(204).send(); }
     catch (error) { if (error instanceof WarrantyImmutableError) return reply.status(409).send({ statusCode: 409, error: 'Conflict', message: 'Warranty is immutable' }); if (error instanceof WarrantyInUseError) return reply.status(409).send({ statusCode: 409, error: 'Conflict', message: 'Warranty has related records' }); throw error; }

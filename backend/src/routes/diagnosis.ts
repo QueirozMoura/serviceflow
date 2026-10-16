@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyReply } from 'fastify';
 import { PrismaClient } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
 import { authenticate } from '../middlewares/authenticate.js';
+import { authorize } from '../middlewares/authorize.js';
 import type { AuthRepository } from '../modules/auth/repository.js';
 import { DiagnosisAlreadyExistsError, DiagnosisInUseError, PrismaDiagnosisRepository, type DiagnosisRepository } from '../modules/diagnosis/repository.js';
 import { createDiagnosisSchema, updateDiagnosisSchema } from '../modules/diagnosis/schemas.js';
@@ -17,7 +18,7 @@ export async function diagnosisRoutes(app: FastifyInstance, options: DiagnosisRo
   if (!options.authRepository) throw new Error('Diagnosis routes require an auth repository');
   const requireAuthentication = authenticate(options.authRepository);
 
-  app.post('/:serviceOrderId/diagnosis', { preHandler: requireAuthentication }, async (request, reply) => {
+  app.post('/:serviceOrderId/diagnosis', { preHandler: [requireAuthentication, authorize('diagnoses:write')] }, async (request, reply) => {
     const parsed = createDiagnosisSchema.safeParse(request.body);
     if (!parsed.success) return reply.status(400).send({ statusCode: 400, error: 'Bad Request', message: 'Invalid diagnosis data' });
     if (!request.user) return reply.status(401).send({ statusCode: 401, error: 'Unauthorized', message: 'Authentication required' });
@@ -33,7 +34,7 @@ export async function diagnosisRoutes(app: FastifyInstance, options: DiagnosisRo
     }
   });
 
-  app.get('/:serviceOrderId/diagnosis', { preHandler: requireAuthentication }, async (request, reply) => {
+  app.get('/:serviceOrderId/diagnosis', { preHandler: [requireAuthentication, authorize('diagnoses:read')] }, async (request, reply) => {
     if (!request.user) return reply.status(401).send({ statusCode: 401, error: 'Unauthorized', message: 'Authentication required' });
     const serviceOrderId = (request.params as { serviceOrderId: string }).serviceOrderId;
     if (!(await repository.serviceOrderBelongsToOrganization(request.user.organizationId, serviceOrderId))) return notFound(reply);
@@ -42,7 +43,7 @@ export async function diagnosisRoutes(app: FastifyInstance, options: DiagnosisRo
     return reply.send({ diagnosis });
   });
 
-  app.patch('/:serviceOrderId/diagnosis', { preHandler: requireAuthentication }, async (request, reply) => {
+  app.patch('/:serviceOrderId/diagnosis', { preHandler: [requireAuthentication, authorize('diagnoses:write')] }, async (request, reply) => {
     const parsed = updateDiagnosisSchema.safeParse(request.body);
     if (!parsed.success) return reply.status(400).send({ statusCode: 400, error: 'Bad Request', message: 'Invalid diagnosis data' });
     if (!request.user) return reply.status(401).send({ statusCode: 401, error: 'Unauthorized', message: 'Authentication required' });
@@ -53,7 +54,7 @@ export async function diagnosisRoutes(app: FastifyInstance, options: DiagnosisRo
     return reply.send({ diagnosis });
   });
 
-  app.delete('/:serviceOrderId/diagnosis', { preHandler: requireAuthentication }, async (request, reply) => {
+  app.delete('/:serviceOrderId/diagnosis', { preHandler: [requireAuthentication, authorize('diagnoses:delete')] }, async (request, reply) => {
     if (!request.user) return reply.status(401).send({ statusCode: 401, error: 'Unauthorized', message: 'Authentication required' });
     const serviceOrderId = (request.params as { serviceOrderId: string }).serviceOrderId;
     if (!(await repository.serviceOrderBelongsToOrganization(request.user.organizationId, serviceOrderId))) return notFound(reply);

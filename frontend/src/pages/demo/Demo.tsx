@@ -11,7 +11,7 @@ const metrics = [
   { label: 'Clientes', value: demoDashboardData.customers.total, icon: Users, color: 'blue' },
   { label: 'Equipamentos', value: demoDashboardData.equipment.total, icon: Boxes, color: 'teal' },
   { label: 'Ordens abertas', value: demoDashboardData.serviceOrders.total, icon: ClipboardList, color: 'amber' },
-  { label: 'Recebimentos', value: currency.format(Number(demoDashboardData.payments.paidTotal)), icon: BadgeDollarSign, color: 'green' },
+  { label: 'Recebimentos', value: currency.format(Number(demoDashboardData.payments?.paidTotal ?? 0)), icon: BadgeDollarSign, color: 'green' },
 ];
 
 export function Demo() {

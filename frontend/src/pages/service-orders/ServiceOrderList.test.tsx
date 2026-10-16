@@ -6,6 +6,8 @@ import type { ServiceOrder } from '../../types/service-order';
 
 const serviceOrderServiceMock = vi.hoisted(() => ({ list: vi.fn(), remove: vi.fn() }));
 vi.mock('../../services/service-orders', () => ({ serviceOrdersService: serviceOrderServiceMock }));
+const authMock = vi.hoisted(() => ({ denied: new Set<string>() }));
+vi.mock('../../contexts/AuthContext', () => ({ useAuth: () => ({ can: (permission: string) => !authMock.denied.has(permission) }) }));
 
 import { ServiceOrderList } from './ServiceOrderList';
 
@@ -28,6 +30,7 @@ async function requestDelete(orderNumber: string) {
 
 describe('ServiceOrderList', () => {
   beforeEach(() => {
+    authMock.denied.clear();
     vi.clearAllMocks();
     serviceOrderServiceMock.list.mockResolvedValue({ serviceOrders: [order] });
   });
@@ -132,5 +135,24 @@ describe('ServiceOrderList', () => {
 
     expect(await screen.findByText(/não foi encontrada/)).toBeTruthy();
     expect(screen.queryByRole('link', { name: 'OS-1' })).toBeNull();
+  });
+
+  it('hides the delete action from a role without serviceOrders:delete', async () => {
+    authMock.denied.add('serviceOrders:delete');
+    renderPage();
+
+    await screen.findAllByText('OS-1');
+    expect(screen.queryByRole('button', { name: 'Excluir OS-1' })).toBeNull();
+    expect(screen.getAllByRole('link', { name: 'Ver OS-1' }).length).toBeGreaterThan(0);
+  });
+
+  it('explains a 403 returned by the API when deleting', async () => {
+    serviceOrderServiceMock.remove.mockRejectedValue(new ApiError('You do not have permission to perform this action', 403));
+    renderPage();
+    const dialog = await requestDelete('OS-1');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Excluir' }));
+
+    expect(await screen.findByText('Você não tem permissão para excluir ordens de serviço.')).toBeTruthy();
+    expect(screen.getAllByText('OS-1').length).toBeGreaterThan(0);
   });
 });

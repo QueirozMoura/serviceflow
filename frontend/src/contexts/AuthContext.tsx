@@ -3,6 +3,7 @@ import { useLocation } from 'react-router-dom';
 import { api } from '../services/api';
 import type { AuthResponse, User } from '../types/auth';
 import { hasActiveSession } from '../utils/sessionProbe';
+import { hasPermission } from '../utils/permissions';
 
 interface LoginInput {
   email: string;
@@ -17,6 +18,7 @@ interface AuthContextValue {
   logout: () => Promise<void>;
   refreshSession: () => Promise<void>;
   updateProfile: (input: { name: string }) => Promise<void>;
+  can: (permission: string) => boolean;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -72,7 +74,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, isAuthenticated: user !== null, isLoading, login, logout, refreshSession, updateProfile }}>
+    <AuthContext.Provider value={{ user, isAuthenticated: user !== null, isLoading, login, logout, refreshSession, updateProfile, can: (permission) => hasPermission(user, permission) }}>
       {children}
     </AuthContext.Provider>
   );

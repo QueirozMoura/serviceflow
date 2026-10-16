@@ -1,4 +1,5 @@
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
+import { setUserRole } from './database';
 
 function createAccount() {
   const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -21,9 +22,10 @@ async function registerAccount(request: APIRequestContext, account: ReturnType<t
   throw new Error('E2E account registration did not become available after backend startup');
 }
 
-async function login(page: Page, request: APIRequestContext): Promise<ReturnType<typeof createAccount>> {
+async function login(page: Page, request: APIRequestContext, role?: 'ADMIN' | 'TECHNICIAN'): Promise<ReturnType<typeof createAccount>> {
   const account = createAccount();
   await registerAccount(request, account);
+  if (role) setUserRole(account.email, role);
   await page.goto('/service-orders');
   await expect(page).toHaveURL(/\/login$/);
   await page.getByLabel('Email').fill(account.email);
@@ -93,7 +95,8 @@ test('navigates a protected session through the main operational flow', async ({
 test('shows protected navigation and required-field validation without sending invalid data', async ({ page, request }) => {
   await login(page, request);
   await page.getByRole('link', { name: 'Clientes' }).click();
-  await page.getByRole('link', { name: 'Novo cliente' }).click();
+  // A lista vazia mostra um segundo link "Novo cliente"; .first() evita ambiguidade conforme o momento do carregamento.
+  await page.getByRole('link', { name: 'Novo cliente' }).first().click();
   await page.getByRole('button', { name: 'Salvar cliente' }).click();
 
   await expect(page.getByRole('alert')).toContainText('Informe um nome válido');
@@ -170,4 +173,96 @@ test('shows the profile, renames the user everywhere and persists after reload',
   await expect(page.getByLabel(/^Nome/)).toHaveValue('Maria E2E');
   await expect(page.getByLabel('E-mail')).toHaveValue(account.email);
   await expect(page.getByLabel('Papel')).toHaveValue('Proprietário');
+});
+
+test('applies role permissions: a technician is restricted and an admin promoted in the database gains access', async ({ page, request }) => {
+  const account = await login(page, request, 'TECHNICIAN');
+  const api = '/api';
+  const customer = await (await page.request.post(`${api}/customers`, { data: { name: 'Cliente Papel E2E', phone: '11966665555' } })).json();
+  const equipment = await (await page.request.post(`${api}/equipment`, { data: { customerId: customer.customer.id, type: 'Notebook', brand: 'Acer', model: 'Aspire E2E' } })).json();
+  const created = await page.request.post(`${api}/service-orders`, { data: { customerId: customer.customer.id, equipmentId: equipment.equipment.id, problemDescription: 'Teclado sem resposta' } });
+  expect(created.status()).toBe(201);
+  const { serviceOrder } = await created.json();
+
+  // Menu e rota: sem pagamentos.
+  await page.goto('/dashboard');
+  await expect(page.getByRole('link', { name: 'Clientes' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Pagamentos' })).toHaveCount(0);
+  await expect(page.getByText('Total recebido')).toHaveCount(0);
+  await page.goto('/payments');
+  await expect(page.getByText('Você não tem permissão para acessar esta página.')).toBeVisible();
+
+  // Listas sem exclusao.
+  await page.goto('/customers');
+  await expect(page.getByText('Cliente Papel E2E')).toBeVisible();
+  await expect(page.getByRole('button', { name: /Excluir/ })).toHaveCount(0);
+
+  // Detalhes da OS: sem excluir e sem pagamentos, mas o diagnostico funciona.
+  await page.goto(`/service-orders/${serviceOrder.id}`);
+  await expect(page.getByText('Teclado sem resposta')).toBeVisible();
+  await expect(page.getByRole('button', { name: /Excluir/ })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Pagamentos' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Adicionar diagnóstico' }).click();
+  await page.getByLabel('Descrição do diagnóstico *').fill('Flat do teclado solto');
+  await page.getByRole('button', { name: 'Salvar diagnóstico' }).click();
+  await expect(page.getByText('Flat do teclado solto')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Excluir diagnóstico' })).toHaveCount(0);
+
+  // O backend recusa mesmo contornando a interface (e nao vaza se o recurso existe).
+  const missing = '00000000-0000-4000-8000-000000000000';
+  for (const [method, url] of [['delete', `${api}/service-orders/${serviceOrder.id}`], ['delete', `${api}/service-orders/${missing}`], ['delete', `${api}/customers/${customer.customer.id}`], ['delete', `${api}/service-orders/${serviceOrder.id}/diagnosis`], ['get', `${api}/service-orders/${serviceOrder.id}/payments`], ['post', `${api}/service-orders/${serviceOrder.id}/payments`]] as const) {
+    const response = await page.request[method](url, method === 'post' ? { data: { amount: '10.00', method: 'PIX' } } : {});
+    expect(response.status(), `${method.toUpperCase()} ${url}`).toBe(403);
+  }
+  const forged = await page.request.delete(`${api}/customers/${customer.customer.id}`, { headers: { 'x-user-role': 'OWNER' }, data: { role: 'OWNER' } });
+  expect(forged.status()).toBe(403);
+  expect((await page.request.patch(`${api}/auth/me`, { data: { name: 'Tecnico', role: 'OWNER' } })).status()).toBe(400);
+  expect((await page.request.get(`${api}/service-orders/${serviceOrder.id}`)).status()).toBe(200);
+
+  // Regras de status: o tecnico avanca a OS e consulta/edita o orcamento, mas nao aprova nem cancela a OS e nao decide o orcamento.
+  const quoteUrl = `${api}/service-orders/${serviceOrder.id}/quote`;
+  expect((await page.request.post(quoteUrl, { data: {} })).status()).toBe(201);
+  expect((await page.request.post(`${quoteUrl}/items`, { data: { description: 'Teclado', quantity: '1', unitPrice: '120.00', type: 'PART' } })).status()).toBe(201);
+  expect((await page.request.get(quoteUrl)).status()).toBe(200);
+  expect((await page.request.patch(`${api}/service-orders/${serviceOrder.id}/status`, { data: { status: 'DELIVERED' } })).status()).toBe(409);
+  expect((await page.request.patch(`${api}/service-orders/${serviceOrder.id}/status`, { data: { status: 'WAITING_DIAGNOSIS' } })).status()).toBe(200);
+  await page.goto(`/service-orders/${serviceOrder.id}`);
+  await expect(page.getByRole('button', { name: 'Aguardando aprovação' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Cancelada' })).toHaveCount(0);
+  for (const name of ['Aprovado', 'Rejeitado', 'Expirado']) await expect(page.getByRole('button', { name })).toHaveCount(0);
+  const orderStatusUrl = `${api}/service-orders/${serviceOrder.id}/status`;
+  for (const [url, status] of [[orderStatusUrl, 'CANCELLED'], [orderStatusUrl, 'APPROVED'], [`${quoteUrl}/status`, 'APPROVED'], [`${quoteUrl}/status`, 'REJECTED'], [`${quoteUrl}/status`, 'EXPIRED'], [`${api}/service-orders/${serviceOrder.id}/warranty/status`, 'EXPIRED']] as const) {
+    const response = await page.request.patch(url, { data: { status } });
+    expect(response.status(), `${url} -> ${status}`).toBe(403);
+  }
+  // Na etapa de aprovacao o tecnico nao tem acao: a interface avisa que depende de um administrador.
+  expect((await page.request.patch(orderStatusUrl, { data: { status: 'WAITING_APPROVAL' } })).status()).toBe(200);
+  await page.reload();
+  await expect(page.getByText('A próxima etapa requer um administrador')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Aprovada' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Cancelada' })).toHaveCount(0);
+
+  // Promovido a ADMIN no banco: a mesma sessao passa a ter pagamentos e exclusao apos recarregar.
+  setUserRole(account.email, 'ADMIN');
+  await page.goto('/dashboard');
+  await expect(page.getByRole('link', { name: 'Pagamentos' })).toBeVisible();
+  await page.getByRole('link', { name: 'Pagamentos' }).click();
+  await expect(page.getByRole('heading', { name: 'Pagamentos' })).toBeVisible();
+  await page.goto(`/service-orders/${serviceOrder.id}`);
+  await expect(page.getByRole('heading', { name: 'Pagamentos' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Excluir diagnóstico' })).toBeVisible();
+  expect((await page.request.get(`${api}/service-orders/${serviceOrder.id}/payments`)).status()).toBe(200);
+  expect((await page.request.delete(`${api}/service-orders/${serviceOrder.id}/diagnosis`)).status()).toBe(204);
+
+  // O ADMIN decide o orcamento, aprova e cancela a OS, pela interface e pela API.
+  await page.reload();
+  for (const name of ['Aprovado', 'Rejeitado', 'Expirado']) await expect(page.getByRole('button', { name })).toBeVisible();
+  await page.getByRole('button', { name: 'Aprovado' }).click();
+  await expect(page.getByRole('button', { name: 'Aprovado' })).toHaveCount(0);
+  expect((await page.request.get(quoteUrl)).status()).toBe(200);
+  await page.getByRole('button', { name: 'Aprovada' }).click();
+  await expect(page.getByText('Status alterado para Aprovada.')).toBeVisible();
+  await page.getByRole('button', { name: 'Cancelada' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Excluir' }).click();
+  await expect(page.getByText('Status alterado para Cancelada.')).toBeVisible();
 });

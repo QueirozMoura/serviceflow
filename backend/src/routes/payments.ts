@@ -3,6 +3,7 @@ import type { FastifyInstance, FastifyReply } from 'fastify';
 import { PrismaClient } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
 import { authenticate } from '../middlewares/authenticate.js';
+import { authorize } from '../middlewares/authorize.js';
 import type { AuthRepository } from '../modules/auth/repository.js';
 import { PaymentImmutableError, PrismaPaymentRepository, type PaymentRepository } from '../modules/payments/repository.js';
 import { createPaymentSchema, paymentStatusQuerySchema, updatePaymentSchema, updatePaymentStatusSchema } from '../modules/payments/schemas.js';
@@ -25,28 +26,28 @@ export async function paymentRoutes(app: FastifyInstance, options: PaymentRoutes
     return { organizationId: request.user.organizationId, serviceOrderId };
   };
 
-  app.post('/:serviceOrderId/payments', { preHandler: requireAuthentication }, async (request, reply) => {
+  app.post('/:serviceOrderId/payments', { preHandler: [requireAuthentication, authorize('payments:write')] }, async (request, reply) => {
     const parsed = createPaymentSchema.safeParse(request.body);
     if (!parsed.success) return reply.status(400).send({ statusCode: 400, error: 'Bad Request', message: 'Invalid payment data' });
     const scope = await getScope(request, reply); if (!scope) return;
     return reply.status(201).send({ payment: await repository.create(scope.organizationId, scope.serviceOrderId, parsed.data) });
   });
 
-  app.get('/:serviceOrderId/payments', { preHandler: requireAuthentication }, async (request, reply) => {
+  app.get('/:serviceOrderId/payments', { preHandler: [requireAuthentication, authorize('payments:read')] }, async (request, reply) => {
     const scope = await getScope(request, reply); if (!scope) return;
     const parsed = paymentStatusQuerySchema.safeParse({ status: (request.query as { status?: string }).status });
     if (!parsed.success) return reply.status(400).send({ statusCode: 400, error: 'Bad Request', message: 'Invalid payment filter' });
     return reply.send({ payments: await repository.list(scope.organizationId, scope.serviceOrderId, parsed.data.status) });
   });
 
-  app.get('/:serviceOrderId/payments/:paymentId', { preHandler: requireAuthentication }, async (request, reply) => {
+  app.get('/:serviceOrderId/payments/:paymentId', { preHandler: [requireAuthentication, authorize('payments:read')] }, async (request, reply) => {
     const scope = await getScope(request, reply); if (!scope) return;
     const payment = await repository.findById(scope.organizationId, scope.serviceOrderId, (request.params as { paymentId: string }).paymentId);
     if (!payment) return notFound(reply);
     return reply.send({ payment });
   });
 
-  app.patch('/:serviceOrderId/payments/:paymentId', { preHandler: requireAuthentication }, async (request, reply) => {
+  app.patch('/:serviceOrderId/payments/:paymentId', { preHandler: [requireAuthentication, authorize('payments:write')] }, async (request, reply) => {
     const parsed = updatePaymentSchema.safeParse(request.body);
     if (!parsed.success) return reply.status(400).send({ statusCode: 400, error: 'Bad Request', message: 'Invalid payment data' });
     const scope = await getScope(request, reply); if (!scope) return;
@@ -57,7 +58,7 @@ export async function paymentRoutes(app: FastifyInstance, options: PaymentRoutes
     } catch (error) { if (error instanceof PaymentImmutableError) return reply.status(409).send({ statusCode: 409, error: 'Conflict', message: 'Payment is immutable' }); throw error; }
   });
 
-  app.patch('/:serviceOrderId/payments/:paymentId/status', { preHandler: requireAuthentication }, async (request, reply) => {
+  app.patch('/:serviceOrderId/payments/:paymentId/status', { preHandler: [requireAuthentication, authorize('payments:write')] }, async (request, reply) => {
     const parsed = updatePaymentStatusSchema.safeParse(request.body);
     if (!parsed.success) return reply.status(400).send({ statusCode: 400, error: 'Bad Request', message: 'Invalid payment status' });
     const scope = await getScope(request, reply); if (!scope) return;
@@ -67,7 +68,7 @@ export async function paymentRoutes(app: FastifyInstance, options: PaymentRoutes
     return reply.send({ payment: await repository.updateStatus(scope.organizationId, scope.serviceOrderId, payment.id, parsed.data.status) });
   });
 
-  app.delete('/:serviceOrderId/payments/:paymentId', { preHandler: requireAuthentication }, async (request, reply) => {
+  app.delete('/:serviceOrderId/payments/:paymentId', { preHandler: [requireAuthentication, authorize('payments:delete')] }, async (request, reply) => {
     const scope = await getScope(request, reply); if (!scope) return;
     try {
       const deleted = await repository.delete(scope.organizationId, scope.serviceOrderId, (request.params as { paymentId: string }).paymentId);

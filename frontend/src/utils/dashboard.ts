@@ -16,8 +16,8 @@ export interface DashboardSummary {
   pendingQuotesTotal: string;
   approvedQuotes: number;
   approvedQuotesTotal: string;
-  paidPayments: number;
-  paidTotal: string;
+  paidPayments: number | null;
+  paidTotal: string | null;
 }
 
 export function summarizeDashboard(data: DashboardResponse): DashboardSummary {
@@ -34,7 +34,7 @@ export function summarizeDashboard(data: DashboardResponse): DashboardSummary {
     approvedQuotes: count(data.quotes.byStatus, 'APPROVED'),
     approvedQuotesTotal: data.quotes.approvedTotal,
     // paidTotal é calculado pelo backend somente com pagamentos PAID (sem pendentes, falhos, cancelados ou estornados).
-    paidPayments: count(data.payments.byStatus, 'PAID'),
-    paidTotal: data.payments.paidTotal,
+    paidPayments: data.payments ? count(data.payments.byStatus, 'PAID') : null,
+    paidTotal: data.payments?.paidTotal ?? null,
   };
 }

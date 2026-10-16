@@ -6,6 +6,8 @@ import type { Customer } from '../../types/customer';
 
 const customerServiceMock = vi.hoisted(() => ({ list: vi.fn(), remove: vi.fn() }));
 vi.mock('../../services/customers', () => ({ customersService: customerServiceMock }));
+const authMock = vi.hoisted(() => ({ denied: new Set<string>() }));
+vi.mock('../../contexts/AuthContext', () => ({ useAuth: () => ({ can: (permission: string) => !authMock.denied.has(permission) }) }));
 
 import { CustomerList } from './CustomerList';
 
@@ -20,6 +22,7 @@ function renderPage() {
 
 describe('CustomerList', () => {
   beforeEach(() => {
+    authMock.denied.clear();
     vi.clearAllMocks();
     customerServiceMock.remove.mockResolvedValue(undefined);
   });
@@ -75,6 +78,27 @@ describe('CustomerList', () => {
     fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Excluir' }));
 
     expect((await screen.findByRole('status')).textContent).toContain('Não é possível excluir este cliente');
+    expect(screen.getByText('Alice Silva')).toBeTruthy();
+  });
+
+  it('hides the delete action from a role without customers:delete', async () => {
+    customerServiceMock.list.mockResolvedValue({ customers: [customer] });
+    authMock.denied.add('customers:delete');
+    renderPage();
+
+    await screen.findByText('Alice Silva');
+    expect(screen.queryByRole('button', { name: /Excluir/ })).toBeNull();
+  });
+
+  it('explains a 403 returned by the API when deleting', async () => {
+    customerServiceMock.list.mockResolvedValue({ customers: [customer] });
+    customerServiceMock.remove.mockRejectedValue(new ApiError('You do not have permission to perform this action', 403));
+    renderPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Excluir Alice Silva' }));
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Excluir' }));
+
+    expect(await screen.findByText('Você não tem permissão para excluir este registro.')).toBeTruthy();
     expect(screen.getByText('Alice Silva')).toBeTruthy();
   });
 });

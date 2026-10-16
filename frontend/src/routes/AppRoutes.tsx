@@ -14,7 +14,7 @@ import { ServiceOrderDetails } from '../pages/service-orders/ServiceOrderDetails
 import { PaymentsPage, QuotesPage, WarrantiesPage } from '../pages/financial/ModuleList';
 import { Profile } from '../pages/profile/Profile';
 import { Demo } from '../pages/demo/Demo';
-import { ProtectedRoute, PublicRoute } from './ProtectedRoute';
+import { ProtectedRoute, PublicRoute, RequirePermission } from './ProtectedRoute';
 
 export function AppRoutes() {
   return (
@@ -35,7 +35,7 @@ export function AppRoutes() {
         <Route path="/service-orders/:id" element={<ServiceOrderDetails />} />
         <Route path="/service-orders/:id/edit" element={<ServiceOrderForm />} />
         <Route path="/quotes" element={<QuotesPage />} />
-        <Route path="/payments" element={<PaymentsPage />} />
+        <Route element={<RequirePermission permission="payments:read" />}><Route path="/payments" element={<PaymentsPage />} /></Route>
         <Route path="/warranties" element={<WarrantiesPage />} />
         <Route path="/profile" element={<Profile />} />
       </Route></Route>
