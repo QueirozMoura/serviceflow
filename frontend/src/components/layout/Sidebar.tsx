@@ -6,6 +6,7 @@ import {
   LayoutDashboard,
   LogOut,
   UserRound,
+  UsersRound,
   ShieldCheck,
   Users,
   Wrench,
@@ -40,7 +41,7 @@ const groups = [
   },
   {
     label: 'Sistema',
-    items: [{ label: 'Meu perfil', icon: UserRound, to: '/profile' }],
+    items: [{ label: 'Equipe', icon: UsersRound, to: '/team', permission: 'team:read' }, { label: 'Meu perfil', icon: UserRound, to: '/profile' }],
   },
 ];
 

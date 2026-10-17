@@ -26,4 +26,12 @@ describe('Sidebar permissions', () => {
     render_({ ...base, role: 'OWNER' });
     expect(screen.queryByRole('link', { name: 'Pagamentos' })).toBeNull();
   });
+
+  it('shows the team entry only to a user allowed to read the team', () => {
+    const { unmount } = render_({ ...base, permissions: ['team:read'] });
+    expect(screen.getByRole('link', { name: 'Equipe' }).getAttribute('href')).toBe('/team');
+    unmount();
+    render_({ ...base, role: 'ADMIN', permissions: ['payments:read', 'customers:read'] });
+    expect(screen.queryByRole('link', { name: 'Equipe' })).toBeNull();
+  });
 });

@@ -34,6 +34,8 @@ export default defineConfig({
         AUTH_COOKIE_SAME_SITE: 'lax',
         // A suite inteira roda do mesmo IP em poucos segundos; o limite padrao (100/min) gera 429 entre testes.
         RATE_LIMIT_MAX: '1000',
+        // Cadastro/login/convites tambem partilham o IP da suite (padrao: 5 por minuto).
+        AUTH_RATE_LIMIT_MAX: '1000',
       },
     },
     {

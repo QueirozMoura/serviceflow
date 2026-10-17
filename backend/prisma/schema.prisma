@@ -71,22 +71,24 @@ model Organization {
   payments      Payment[]
   warranties    Warranty[]
   messages      Message[]
+  invitations   Invitation[]
 }
 
 model User {
-  id             String                      @id @default(uuid())
-  organizationId String
-  name           String
-  email          String
-  passwordHash   String?
-  role           UserRole
-  createdAt      DateTime                    @default(now())
-  updatedAt      DateTime                    @updatedAt
-  organization   Organization                @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  statusChanges  ServiceOrderStatusHistory[]
-  sessions       Session[]
-  oauthAccounts  OAuthAccount[]
-  messages       Message[]
+  id                 String                      @id @default(uuid())
+  organizationId     String
+  name               String
+  email              String
+  passwordHash       String?
+  role               UserRole
+  createdAt          DateTime                    @default(now())
+  updatedAt          DateTime                    @updatedAt
+  organization       Organization                @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  statusChanges      ServiceOrderStatusHistory[]
+  sessions           Session[]
+  oauthAccounts      OAuthAccount[]
+  messages           Message[]
+  invitationsCreated Invitation[]
 
   @@unique([organizationId, email])
   @@unique([id, organizationId])
@@ -340,4 +342,25 @@ model Message {
   @@unique([organizationId, idempotencyKey])
   @@index([organizationId])
   @@index([organizationId, serviceOrderId, createdAt])
+}
+
+// Convite para entrar numa organizacao com um papel NAO-dono. O token (256 bits) so existe em texto puro na resposta
+// da criacao; aqui fica apenas o hash. Vale uma vez: acceptedAt/revokedAt o encerram, e expiresAt o limita no tempo.
+// A migration acrescenta CHECK ("role" <> 'OWNER'): ninguem vira dono por convite, nem por SQL direto.
+model Invitation {
+  id              String       @id @default(uuid())
+  organizationId  String
+  email           String
+  role            UserRole
+  tokenHash       String       @unique
+  expiresAt       DateTime
+  createdByUserId String
+  createdAt       DateTime     @default(now())
+  acceptedAt      DateTime?
+  revokedAt       DateTime?
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  createdBy       User         @relation(fields: [createdByUserId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([organizationId, email])
+  @@index([organizationId, createdAt])
 }

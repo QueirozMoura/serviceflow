@@ -16,11 +16,12 @@ export const PERMISSIONS = [
   'warranties:read', 'warranties:write', 'warranties:status', 'warranties:delete',
   'messages:generate', 'messages:read', 'messages:write',
   'dashboard:read',
+  'team:read', 'team:manage',
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];
 
-// OWNER e ADMIN: hoje nenhuma operacao e exclusiva do dono (nao ha gestao de usuarios nem de dados da organizacao).
+// OWNER: tudo. ADMIN: tudo, EXCETO a gestao da equipe (team:*), exclusiva do dono (convidar, revogar, listar membros).
 // TECHNICIAN: lista explicita (negado por padrao). Novas permissoes nao chegam ao tecnico sem serem adicionadas aqui.
 // Regras de negocio do TECHNICIAN: NAO aprova nem cancela OS (serviceOrders:approve / :cancel, em nenhum estado),
 // NAO aprova, rejeita nem expira orcamento (quotes:approve / :reject / :expire), NAO altera valores (serviceOrders:value,
@@ -38,9 +39,11 @@ const technicianPermissions: readonly Permission[] = [
   'dashboard:read',
 ];
 
+const ownerOnlyPermissions: readonly Permission[] = ['team:read', 'team:manage'];
+
 const rolePermissions: Record<UserRole, ReadonlySet<Permission>> = {
   [UserRole.OWNER]: new Set(PERMISSIONS),
-  [UserRole.ADMIN]: new Set(PERMISSIONS),
+  [UserRole.ADMIN]: new Set(PERMISSIONS.filter((permission) => !ownerOnlyPermissions.includes(permission))),
   [UserRole.TECHNICIAN]: new Set(technicianPermissions),
 };
 

@@ -31,3 +31,11 @@ A API fica disponivel em `http://127.0.0.1:3333` e o health check em `GET /api/h
 - `npm run prisma:migrate`: cria/aplica uma migration de desenvolvimento
 
 O arquivo `.env.example` documenta as variaveis necessarias. Nunca versionar `.env` ou credenciais reais.
+
+## Cadastro por e-mail, equipe e convites
+
+- **Cadastro público** (`POST /api/auth/register`): cria a organização e o OWNER numa única transação. O cliente não escolhe papel nem organização (campos extras são rejeitados). O slug da organização recebe um sufixo aleatório, então duas empresas podem ter o mesmo nome; colisões (inclusive concorrentes) são resolvidas pelo índice único do PostgreSQL com nova tentativa limitada.
+- **Convites** (`/api/team/*`, somente OWNER): o OWNER convida ADMIN ou TECHNICIAN por e-mail. O token (256 bits) é devolvido **uma única vez** na criação e só o hash fica no banco; vale 7 dias e uma única vez, e pode ser revogado. **Nenhum e-mail é enviado**: o OWNER copia o link (`/invite#t=<token>`) e o entrega manualmente. O token vai no fragmento da URL do frontend e no corpo das requisições, nunca em URLs da API.
+- **Aceite** (`POST /api/auth/invitations/accept`): cria o membro com e-mail, papel e organização **do convite**, marca o convite como usado e abre a sessão, tudo na mesma transação.
+- **Limitações conhecidas**: o e-mail informado no cadastro por senha **não é verificado** (verificação e recuperação de senha ficam para a Etapa 14.3); quem recebe o link prova a posse apenas por tê-lo; um e-mail pode ter contas em equipes diferentes e o login as distingue pela senha (por isso o aceite recusa reutilizar a senha de outra conta com o mesmo e-mail); ainda não há remoção de membros nem troca de papel; o cadastro por senha não vincula identidades externas (Google) por e-mail.
+- Limites por IP e minuto: `AUTH_RATE_LIMIT_MAX` (padrão 5) no cadastro e no login; aceitar convite usa o dobro e consultar convite o quádruplo.

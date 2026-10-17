@@ -13,13 +13,18 @@ import { ServiceOrderForm } from '../pages/service-orders/ServiceOrderForm';
 import { ServiceOrderDetails } from '../pages/service-orders/ServiceOrderDetails';
 import { PaymentsPage, QuotesPage, WarrantiesPage } from '../pages/financial/ModuleList';
 import { Profile } from '../pages/profile/Profile';
+import { Signup } from '../pages/auth/Signup';
+import { AcceptInvite } from '../pages/auth/AcceptInvite';
+import { Team } from '../pages/team/Team';
 import { Demo } from '../pages/demo/Demo';
 import { ProtectedRoute, PublicRoute, RequirePermission } from './ProtectedRoute';
 
 export function AppRoutes() {
   return (
     <Routes>
-      <Route element={<PublicRoute />}><Route path="/" element={<Demo />} /><Route path="/login" element={<Login />} /></Route>
+      <Route element={<PublicRoute />}><Route path="/" element={<Demo />} /><Route path="/login" element={<Login />} /><Route path="/signup" element={<Signup />} /></Route>
+      {/* Fora de PublicRoute: quem já está logado vê um aviso em vez de ser redirecionado e perder o link do convite. */}
+      <Route path="/invite" element={<AcceptInvite />} />
       <Route element={<ProtectedRoute />}><Route element={<AppLayout />}><Route path="/dashboard" element={<Dashboard />} /></Route></Route>
       <Route element={<ProtectedRoute />}><Route element={<AppLayout />}>
         <Route path="/customers" element={<CustomerList />} />
@@ -37,6 +42,7 @@ export function AppRoutes() {
         <Route path="/quotes" element={<QuotesPage />} />
         <Route element={<RequirePermission permission="payments:read" />}><Route path="/payments" element={<PaymentsPage />} /></Route>
         <Route path="/warranties" element={<WarrantiesPage />} />
+        <Route element={<RequirePermission permission="team:read" />}><Route path="/team" element={<Team />} /></Route>
         <Route path="/profile" element={<Profile />} />
       </Route></Route>
       <Route path="*" element={<Navigate to="/dashboard" replace />} />

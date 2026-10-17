@@ -407,3 +407,56 @@ test('applies role permissions: a technician is restricted and an admin promoted
   await page.getByRole('button', { name: 'Limpar filtros' }).click();
   await expect(page.getByText('Mostrando 1–20 de 22 registros')).toBeVisible();
 });
+
+test('signs up by email, invites a technician through a link, and the invite works exactly once', async ({ page, browser }) => {
+  const owner = createAccount();
+
+  // Cadastro pela interface: cria a organizacao e o OWNER e ja entra.
+  await page.goto('/login');
+  await page.getByRole('link', { name: 'Criar conta' }).click();
+  await expect(page).toHaveURL(/\/signup$/);
+  await page.getByLabel('Nome da empresa').fill(owner.organizationName);
+  await page.getByLabel('Seu nome').fill(owner.name);
+  await page.getByLabel('Email').fill(owner.email);
+  await page.getByLabel('Senha', { exact: true }).fill(owner.password);
+  await page.getByLabel('Confirmar senha').fill(owner.password);
+  await page.getByRole('button', { name: /^Criar conta/ }).click();
+  await expect(page).toHaveURL(/\/dashboard$/);
+
+  // O OWNER gera o convite; o link aparece uma unica vez (nenhum email e enviado).
+  await page.getByRole('link', { name: 'Equipe' }).click();
+  await expect(page).toHaveURL(/\/team$/);
+  const invitee = `tecnico-${Date.now()}@example.com`;
+  await page.getByLabel('Email do convidado').fill(invitee);
+  await page.getByRole('button', { name: /Criar convite/ }).click();
+  const link = await page.getByLabel('Link do convite').inputValue();
+  expect(link).toMatch(/\/invite#t=[A-Za-z0-9_-]{43}$/);
+  await expect(page.getByRole('row', { name: new RegExp(invitee) })).toBeVisible();
+
+  // O convidado abre o link em outra sessao, aceita e entra como TECNICO (sem gestao de equipe).
+  const guest = await browser.newContext();
+  const guestPage = await guest.newPage();
+  await guestPage.goto(link);
+  await expect(guestPage.getByText(owner.organizationName)).toBeVisible();
+  await expect(guestPage.getByLabel('Email')).toHaveValue(invitee);
+  await expect(guestPage).not.toHaveURL(/#t=/);
+  await guestPage.getByLabel('Seu nome').fill('Tecnico Convidado');
+  await guestPage.getByLabel('Crie uma senha').fill('StrongPass1');
+  await guestPage.getByRole('button', { name: 'Aceitar convite' }).click();
+  await expect(guestPage).toHaveURL(/\/dashboard$/);
+  await expect(guestPage.getByRole('link', { name: 'Clientes' })).toBeVisible();
+  await expect(guestPage.getByRole('link', { name: 'Equipe' })).toHaveCount(0);
+  await guestPage.goto('/team');
+  await expect(guestPage.getByText('Você não tem permissão para acessar esta página.')).toBeVisible();
+  await guest.close();
+
+  // O link nao funciona uma segunda vez e o OWNER ve o novo membro, sem convites pendentes.
+  const stranger = await browser.newContext();
+  const strangerPage = await stranger.newPage();
+  await strangerPage.goto(link);
+  await expect(strangerPage.getByText(/não é válido ou expirou/)).toBeVisible();
+  await stranger.close();
+  await page.reload();
+  await expect(page.getByRole('row', { name: new RegExp(`Tecnico Convidado ${invitee}`) })).toBeVisible();
+  await expect(page.getByText('Nenhum convite pendente.')).toBeVisible();
+});

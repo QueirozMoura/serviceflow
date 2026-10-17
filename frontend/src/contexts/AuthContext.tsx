@@ -11,11 +11,18 @@ interface LoginInput {
   password: string;
 }
 
+interface SignupInput { organizationName: string; name: string; email: string; password: string }
+interface AcceptInvitationInput { token: string; name: string; password: string }
+
 interface AuthContextValue {
   user: User | null;
   isAuthenticated: boolean;
   isLoading: boolean;
   login: (input: LoginInput) => Promise<void>;
+  /** Cria a organização e o OWNER e já entra (cadastro + login). */
+  signup: (input: SignupInput) => Promise<void>;
+  /** Aceita um convite: cria o membro e já entra com a sessão devolvida. */
+  acceptInvitation: (input: AcceptInvitationInput) => Promise<void>;
   logout: () => Promise<void>;
   refreshSession: () => Promise<void>;
   updateProfile: (input: { name: string }) => Promise<void>;
@@ -60,6 +67,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(response.user);
   };
 
+  const signup = async (input: SignupInput) => {
+    await api.post<unknown>('/api/auth/register', input);
+    // A conta já existe; se o login falhar, o erro chega à tela, que orienta a entrar manualmente.
+    await login({ email: input.email, password: input.password });
+  };
+
+  const acceptInvitation = async (input: AcceptInvitationInput) => {
+    const response = await api.post<AuthResponse>('/api/auth/invitations/accept', input);
+    setUser(response.user);
+  };
+
   const logout = async () => {
     try {
       await api.post<void>('/api/auth/logout');
@@ -76,7 +94,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, isAuthenticated: user !== null, isLoading, login, logout, refreshSession, updateProfile, can: (permission) => hasPermission(user, permission) }}>
+    <AuthContext.Provider value={{ user, isAuthenticated: user !== null, isLoading, login, signup, acceptInvitation, logout, refreshSession, updateProfile, can: (permission) => hasPermission(user, permission) }}>
       {children}
     </AuthContext.Provider>
   );

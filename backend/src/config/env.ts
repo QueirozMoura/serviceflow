@@ -12,6 +12,8 @@ const envSchema = z
     CORS_ORIGIN: z.string().min(1).default('http://localhost:3000'),
     RATE_LIMIT_MAX: z.coerce.number().int().positive().default(100),
     RATE_LIMIT_WINDOW: z.string().min(1).default('1 minute'),
+    // Tentativas por minuto e por IP em login e cadastro; aceitar/consultar convite usam multiplos disso.
+    AUTH_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(5),
     AUTH_SESSION_TTL_SECONDS: z.coerce.number().int().positive().default(604800),
     AUTH_COOKIE_NAME: z.string().regex(/^[a-zA-Z0-9_-]+$/).default('serviceflow_session'),
     AUTH_COOKIE_SAME_SITE: z.enum(['lax', 'strict', 'none']).default('lax'),

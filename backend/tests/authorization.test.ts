@@ -148,9 +148,18 @@ describe('role-based authorization', () => {
     app.inject({ method: route.method, url: route.url + (extra.query ?? ''), headers: { ...(cookie ? { cookie } : {}), ...extra.headers }, ...(route.method === 'POST' || route.method === 'PATCH' ? { payload: extra.payload ?? route.payload ?? {} } : {}) });
 
   describe('permission map', () => {
-    it('gives OWNER and ADMIN every permission', () => {
+    it('gives OWNER every permission and ADMIN every permission except team management', () => {
       expect(permissionsFor(UserRole.OWNER)).toEqual([...PERMISSIONS]);
-      expect(permissionsFor(UserRole.ADMIN)).toEqual([...PERMISSIONS]);
+      expect(permissionsFor(UserRole.ADMIN)).toEqual(PERMISSIONS.filter((permission) => !permission.startsWith('team:')));
+      expect(permissionsFor(UserRole.OWNER)).toEqual(expect.arrayContaining(['team:read', 'team:manage']));
+    });
+
+    it('keeps team management away from ADMIN and TECHNICIAN', () => {
+      for (const role of [UserRole.ADMIN, UserRole.TECHNICIAN]) {
+        expect(hasPermission(role, 'team:read')).toBe(false);
+        expect(hasPermission(role, 'team:manage')).toBe(false);
+      }
+      expect(hasPermission(UserRole.OWNER, 'team:manage')).toBe(true);
     });
 
     it('limits TECHNICIAN to the bench workflow: no deletions and no payments', () => {

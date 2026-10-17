@@ -13,6 +13,7 @@ import {
   isGoogleOAuthEnabled,
 } from '../modules/auth/google.js';
 import {
+  AccountAlreadyExistsError,
   authenticateAccount,
   createUserSession,
   getPublicAccount,
@@ -41,7 +42,7 @@ export async function authRoutes(app: FastifyInstance, options: AuthRoutesOption
   const repository = options.repository ?? new PrismaAuthRepository(options.database ?? prisma);
   const requireAuthentication = authenticate(repository);
 
-  app.post('/register', { config: { rateLimit: { max: 5, timeWindow: '1 minute' } } }, async (request, reply) => {
+  app.post('/register', { config: { rateLimit: { max: env.AUTH_RATE_LIMIT_MAX, timeWindow: '1 minute' } } }, async (request, reply) => {
     const parsed = registerSchema.safeParse(request.body);
     if (!parsed.success) {
       return reply.status(400).send({ statusCode: 400, error: 'Bad Request', message: 'Invalid registration data' });
@@ -51,14 +52,14 @@ export async function authRoutes(app: FastifyInstance, options: AuthRoutesOption
       const account = await registerAccount(repository, parsed.data);
       return reply.status(201).send(getPublicAccount(account));
     } catch (error) {
-      if (isUniqueConstraintError(error)) {
+      if (error instanceof AccountAlreadyExistsError || isUniqueConstraintError(error)) {
         return reply.status(409).send({ statusCode: 409, error: 'Conflict', message: 'Unable to create account' });
       }
       throw error;
     }
   });
 
-  app.post('/login', { config: { rateLimit: { max: 5, timeWindow: '1 minute' } } }, async (request, reply) => {
+  app.post('/login', { config: { rateLimit: { max: env.AUTH_RATE_LIMIT_MAX, timeWindow: '1 minute' } } }, async (request, reply) => {
     const parsed = loginSchema.safeParse(request.body);
     if (!parsed.success) {
       return reply.status(401).send({ statusCode: 401, error: 'Unauthorized', message: 'Invalid email or password' });

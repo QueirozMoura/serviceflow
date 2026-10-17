@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import { Prisma } from '@prisma/client';
 import { env } from '../../config/env.js';
@@ -17,16 +18,47 @@ export function makeOrganizationSlug(name: string): string {
   return slug || 'organization';
 }
 
+/** O e-mail ja tem conta: o cadastro publico e recusado com a mesma resposta generica de qualquer outra falha de criacao. */
+export class AccountAlreadyExistsError extends Error {
+  constructor() {
+    super('Unable to create account');
+    this.name = 'AccountAlreadyExistsError';
+  }
+}
+
+const SLUG_ATTEMPTS = 5;
+
+/**
+ * Slug = nome normalizado + sufixo aleatorio de 32 bits. O nome nunca precisa ser unico (duas empresas podem se chamar
+ * igual); a unicidade e garantida pelo indice unico do PostgreSQL: numa colisao (rara, ou concorrente) a criacao
+ * transacional inteira e refeita com outro sufixo, no maximo SLUG_ATTEMPTS vezes. O slug e so um identificador publico:
+ * isolamento e autorizacao usam sempre organizationId.
+ */
+export function makeUniqueOrganizationSlug(name: string): string {
+  return `${makeOrganizationSlug(name)}-${randomBytes(4).toString('hex')}`;
+}
+
 export async function registerAccount(repository: AuthRepository, input: RegisterInput): Promise<CreatedAccount> {
+  // Uma conta COM SENHA por e-mail no cadastro publico: duas contas de senha com o mesmo e-mail tornariam o login ambiguo.
+  // Contas Google (sem senha) nao entram na checagem: nao fazem login por senha e a identidade Google nunca e vinculada
+  // por e-mail (ver resolveGoogleUser), entao esse cadastro nao toma nem altera a conta Google existente.
+  if ((await repository.findUsersByEmail(input.email)).some((user) => user.passwordHash !== null)) throw new AccountAlreadyExistsError();
   const passwordHash = await bcrypt.hash(input.password, 12);
 
-  return repository.createOrganizationWithOwner({
-    organizationName: input.organizationName,
-    slug: makeOrganizationSlug(input.organizationName),
-    name: input.name,
-    email: input.email,
-    passwordHash,
-  });
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      // Organizacao e OWNER nascem na mesma transacao do repositorio: falhou, nada fica gravado.
+      return await repository.createOrganizationWithOwner({
+        organizationName: input.organizationName,
+        slug: makeUniqueOrganizationSlug(input.organizationName),
+        name: input.name,
+        email: input.email,
+        passwordHash,
+      });
+    } catch (error) {
+      if (!isUniqueConstraintError(error) || attempt >= SLUG_ATTEMPTS) throw error;
+    }
+  }
 }
 
 export async function authenticateAccount(repository: AuthRepository, input: LoginInput): Promise<AuthUserRecord | null> {
