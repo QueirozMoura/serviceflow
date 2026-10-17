@@ -61,7 +61,7 @@ O projeto é composto por duas aplicações independentes neste repositório:
 
 ## Funcionalidades
 
-Tudo o que está listado abaixo existe no código e é coberto por testes automatizados.
+Tudo o que está listado abaixo está implementado no código e, com exceção da página de demonstração, é coberto por testes automatizados.
 
 | Área | O que o sistema faz |
 | --- | --- |
@@ -188,7 +188,7 @@ serviceflow/
 | npm | acompanha o Node | |
 | PostgreSQL | servidor local | Validado com PostgreSQL 18 |
 | `psql` | no `PATH` | Necessário para os testes de integração e E2E, que criam e removem bancos temporários |
-| Navegadores do Playwright | opcional | Apenas para o E2E: `npx playwright install` |
+| Navegador do Playwright | opcional | Apenas para o E2E: `npx playwright install chromium` (em Linux sem as bibliotecas do sistema, pode ser necessário `--with-deps`) |
 
 ## Instalação local
 
@@ -201,7 +201,7 @@ cd serviceflow
 
 ### 2. Criar o banco PostgreSQL
 
-Exemplo com `psql`, usando um usuário administrador do seu servidor local. **Troque a senha de exemplo.**
+Abra o `psql` como administrador do seu servidor local (por exemplo, `sudo -u postgres psql` no Linux, ou `psql -U postgres` se você tiver o usuário `postgres` com senha) e execute os comandos abaixo. **Troque a senha de exemplo** e use a mesma no `DATABASE_URL` do passo seguinte.
 
 ```sql
 CREATE ROLE serviceflow WITH LOGIN PASSWORD 'change-me' CREATEDB;
@@ -214,7 +214,7 @@ A permissão `CREATEDB` só é necessária para executar os testes de integraç�
 
 ```bash
 cd backend
-npm install
+npm ci
 cp .env.example .env        # edite DATABASE_URL e demais valores
 npm run prisma:generate
 npm run prisma:deploy       # aplica as migrations
@@ -223,13 +223,15 @@ npm run dev                 # http://127.0.0.1:3333
 
 Verifique: `curl http://127.0.0.1:3333/api/health` deve responder `{"status":"ok"}`.
 
+> `npm ci` instala exatamente as versões do `package-lock.json`. O npm 11 pode avisar (`allow-scripts`) que alguns pacotes têm scripts de instalação ainda não aprovados; por isso o passo `npm run prisma:generate` é obrigatório, mesmo que o `npm ci` tenha terminado sem erro.
+
 ### 4. Iniciar o frontend
 
 Em outro terminal:
 
 ```bash
 cd frontend
-npm install
+npm ci
 npm run dev                 # http://localhost:3000
 ```
 
@@ -237,7 +239,7 @@ Em desenvolvimento **não é necessário** criar `frontend/.env`: o Vite encamin
 
 ### 5. Criar a primeira conta
 
-Abra `http://localhost:3000`, escolha **Criar conta** e cadastre sua empresa. O primeiro usuário é o **proprietário** e pode convidar o restante da equipe em **Equipe**.
+Abra `http://localhost:3000/signup` e cadastre sua empresa (também é possível chegar lá por **Entrar** → **Criar conta**). O endereço `http://localhost:3000/` mostra apenas a página de demonstração. O primeiro usuário é o **proprietário** e pode convidar o restante da equipe em **Equipe**.
 
 ## Variáveis de ambiente
 
@@ -298,6 +300,8 @@ Boas práticas adotadas: migrations antigas nunca são editadas (alterações vi
 
 URLs locais: API em `http://127.0.0.1:3333` (saúde em `GET /api/health`) e interface em `http://localhost:3000`.
 
+> **Demonstração × aplicação real.** A rota `/` é uma página de apresentação com **dados fictícios** embutidos no frontend; ela não exibe nem grava dados reais (a aplicação apenas consulta `GET /api/auth/session` ali, para redirecionar quem já está logado ao painel). `/login`, `/signup`, `/invite` e as demais telas após o login são a **aplicação real**, conectada à API e ao PostgreSQL.
+
 ## Scripts disponíveis
 
 ### Backend
@@ -351,13 +355,13 @@ npm run e2e                 # Playwright
 | Unitários do backend | Vitest | Rotas e regras com repositórios em memória: autenticação, matriz de permissões, validações, erros | Nenhum banco |
 | Integração do backend | Vitest + PostgreSQL | Concorrência e transações reais: totais de orçamento, idempotência e saldo de pagamentos, ciclo de vida da ordem, convites, cadastro, isolamento entre organizações, vínculo com Google | PostgreSQL local, `psql` e um usuário com `CREATEDB` |
 | Frontend | Vitest + Testing Library | Páginas, formulários, permissões na interface, ciclo de vida da chave de idempotência | Nenhum |
-| E2E | Playwright | Fluxos completos no navegador: cadastro, convite, ordens, permissões por papel | PostgreSQL local, `psql`, portas 3000 e 3333 livres e `npx playwright install` |
+| E2E | Playwright | Fluxos completos no navegador: cadastro, convite, ordens, permissões por papel | PostgreSQL local, `psql`, `backend/.env`, dependências do backend instaladas com o Prisma Client gerado, portas 3000 e 3333 livres e `npx playwright install chromium` |
 
 Como os testes tratam o banco:
 
 - Os testes de integração criam bancos temporários `serviceflow_it_*`, aplicam as migrations e os removem ao final. Recusam qualquer servidor que não seja local.
 - O E2E recria o banco `serviceflow_e2e` e o remove no término. Ele **não** usa o banco de desenvolvimento.
-- O E2E sobe o backend e o frontend sozinho; não é preciso iniciá-los antes.
+- O E2E sobe o backend e o frontend sozinho; não é preciso iniciá-los antes. Como ele executa o código do backend a partir do `frontend/`, exige `npm ci` e `npm run prisma:generate` já feitos em `backend/` e um `backend/.env` válido. O `tsx` usado para iniciar o backend não é dependência do `frontend/`: o `npx` o baixa do registro do npm na primeira execução (requer internet).
 - O Playwright gera `frontend/playwright-report/` e `frontend/test-results/`; parte desses arquivos já está versionada, então confira `git status` depois de rodar o E2E.
 
 ## Autenticação, permissões e multi-tenancy
@@ -385,10 +389,12 @@ A matriz completa fica em [`backend/src/modules/auth/permissions.ts`](backend/sr
 | Pagamentos (ver e registrar) | sim | sim | não |
 | Excluir registros (clientes, equipamentos, ordens, diagnósticos, orçamentos, pagamentos, garantias) | sim | sim | não |
 | Alterar o status da garantia | sim | sim | não |
+| Ler orçamentos, criar o orçamento (sem itens), editar suas notas e a descrição/tipo dos itens | sim | sim | sim |
 | Gerar mensagens e consultar o histórico | sim | sim | sim |
+| Ver o painel (o técnico não recebe os indicadores de pagamentos) | sim | sim | sim |
 | Gerenciar a equipe (convites e lista de membros) | sim | não | não |
 
-O frontend usa as permissões devolvidas pela API apenas para exibir ou ocultar ações; a barreira real é a autorização do backend, que responde `403` antes de consultar o recurso.
+O frontend usa as permissões devolvidas pela API apenas para exibir ou ocultar ações; a barreira real é a autorização do backend, que responde `403`, na grande maioria dos casos, antes de consultar o recurso. A exceção é a alteração dos valores de uma ordem (`PATCH`): o backend primeiro confirma que a ordem pertence à organização e recusa com `403` somente se o valor de fato mudar.
 
 ### Isolamento multi-tenant
 
