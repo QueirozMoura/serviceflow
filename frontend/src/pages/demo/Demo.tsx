@@ -2,6 +2,7 @@ import { ArrowRight, BadgeDollarSign, Boxes, CheckCircle2, ClipboardList, Shield
 import { useNavigate } from 'react-router-dom';
 import { Badge } from '../../components/ui/Badge';
 import { Card } from '../../components/ui/Card';
+import { ThemeToggle } from '../../components/ui/ThemeToggle';
 import { Button } from '../../components/ui/Button';
 import { demoDashboardData } from '../../demo/demoData';
 
@@ -22,7 +23,7 @@ export function Demo() {
       <header className="demo-header">
         <div className="auth-brand"><div className="brand-mark"><Wrench size={21} /></div><span>Service<span>Flow</span></span></div>
         <div className="demo-header-actions">
-          <span className="demo-mode-label"><span className="demo-dot" /> Modo demonstração</span>
+          <ThemeToggle /><span className="demo-mode-label"><span className="demo-dot" /> Modo demonstração</span>
           <Button className="button-secondary button-small" type="button" onClick={() => navigate('/login')}>Entrar <ArrowRight size={15} /></Button>
         </div>
       </header>
@@ -47,7 +48,7 @@ export function Demo() {
         </div>
         <Card className="demo-orders-card">
           <div className="card-heading"><div><p className="eyebrow">Acompanhamento</p><h2>Ordens recentes</h2></div><span className="heading-count">Amostra demonstrativa</span></div>
-          <div className="orders-table-wrap"><table><thead><tr><th>Ordem</th><th>Cliente</th><th>Equipamento</th><th>Status</th></tr></thead><tbody>{demoDashboardData.recentServiceOrders.map((order) => <tr key={order.id}><td><strong className="order-number">{order.orderNumber}</strong></td><td>{order.customer.name}</td><td>{[order.equipment.brand, order.equipment.model].filter(Boolean).join(' ')}</td><td><Badge value={order.status} /></td></tr>)}</tbody></table></div>
+          <div className="orders-table-wrap" tabIndex={0} role="region" aria-label="Ordens recentes (demonstração)"><table><thead><tr><th>Ordem</th><th>Cliente</th><th>Equipamento</th><th>Status</th></tr></thead><tbody>{demoDashboardData.recentServiceOrders.map((order) => <tr key={order.id}><td><strong className="order-number">{order.orderNumber}</strong></td><td>{order.customer.name}</td><td>{[order.equipment.brand, order.equipment.model].filter(Boolean).join(' ')}</td><td><Badge value={order.status} /></td></tr>)}</tbody></table></div>
         </Card>
       </section>
 

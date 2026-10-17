@@ -39,6 +39,32 @@
   --accent: var(--accent-600);
   --accent-ring: rgba(70, 80, 236, 0.28);
 
+  /* Preenchimentos sólidos da marca (botão primário, logo, avatar, cartão-herói): iguais nos dois temas, texto branco por cima */
+  --solid-1: #5560f2;
+  --solid-2: #4650ec;
+  --solid-3: #3a42cf;
+  --solid-4: #2f36a6;
+  --solid-danger: #c4251b;
+  --solid-danger-hover: #a81d14;
+
+  /* Campos, cabeçalho, camadas sobrepostas */
+  --field-bg: var(--surface);
+  --header-bg: rgba(255, 255, 255, 0.86);
+  --overlay: rgba(13, 16, 23, 0.55);
+  --tooltip-bg: #10131a;
+  --tooltip-text: #ffffff;
+  --toast-bg: #10131a;
+  --toast-text: #ffffff;
+  --toast-line: transparent;
+  --toast-ok: #4ade9a;
+  --toast-err: #ff8d84;
+  --skeleton-a: #eceef4;
+  --skeleton-b: #f6f7fb;
+
+  /* Cores dos gráficos */
+  --tone-slate: #98a2b5; --tone-amber: #e8a317; --tone-violet: #7c4dde; --tone-teal: #14a39a;
+  --tone-blue: #2d8fd8; --tone-accent: #4650ec; --tone-green: #18a870; --tone-red: #e5483d;
+
   /* Barra lateral */
   --sidebar-bg: #0d1017;
   --sidebar-raise: #161b27;
@@ -81,4 +107,66 @@
   --sidebar-width: 264px;
   --header-height: 68px;
   --content-max: 1280px;
+}
+
+/* ───────── Tema escuro ─────────
+   Paleta própria (não é inversão): fundo azul-grafite confortável, superfícies em degraus claros, texto levemente
+   acinzentado para não ofuscar, tintas de acento profundas e cores semânticas mais claras sobre fundos escuros.
+   Ativado por <html data-theme="dark">; o padrão sem preferência salva é o tema claro. */
+[data-theme='dark'] {
+  color-scheme: dark;
+
+  --bg: #0b0e14;
+  --surface: #131822;
+  --surface-2: #181e2b;
+  --surface-sunken: #0f131b;
+  --field-bg: #0e121a;
+  --line: #232a39;
+  --line-strong: #323b50;
+  --ink-900: #eceff6;
+  --ink-700: #cdd3e1;
+  --ink-500: #9ba5ba;
+  --ink-400: #8b95ab;
+  --ink-300: #566074;
+  --placeholder: #7a849b;
+
+  /* Tintas de acento viram fundos profundos; os tons -700/-800 (usados como TEXTO) ficam claros */
+  --accent-50: #171c3d;
+  --accent-100: #1f2652;
+  --accent-200: #303a85;
+  --accent-700: #a9b2ff;
+  --accent-800: #c6ccff;
+  --accent: #7f8aff;
+  --accent-ring: rgba(127, 138, 255, 0.4);
+
+  --sidebar-bg: #07090e;
+  --sidebar-raise: #11151e;
+  --sidebar-line: #181d29;
+
+  --success: #5fd9a6;   --success-bg: #0f2a21;   --success-line: #1d5640;
+  --warning: #f3b862;   --warning-bg: #2c2110;   --warning-line: #6a4b16;
+  --danger: #ff938a;    --danger-bg: #331619;    --danger-line: #702b2d;
+  --info: #72bdf2;      --info-bg: #0f2536;      --info-line: #21507a;
+  --violet: #b9a0ff;    --violet-bg: #231a41;    --violet-line: #4a3987;
+  --teal: #56d4c9;      --teal-bg: #0e2b2a;      --teal-line: #1c5955;
+  --neutral: #adb6c8;   --neutral-bg: #1b2130;   --neutral-line: #343d52;
+
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.36), 0 1px 3px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 8px 20px -6px rgba(0, 0, 0, 0.55), 0 2px 6px -2px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 24px 48px -12px rgba(0, 0, 0, 0.72), 0 8px 16px -8px rgba(0, 0, 0, 0.5);
+  --shadow-accent: 0 6px 18px -6px rgba(85, 96, 242, 0.55);
+
+  --header-bg: rgba(11, 14, 20, 0.82);
+  --overlay: rgba(2, 4, 8, 0.68);
+  --tooltip-bg: #2b3348;
+  --tooltip-text: #f2f4f9;
+  --toast-bg: #202839;
+  --toast-text: #f2f4f9;
+  --toast-line: #364058;
+  --skeleton-a: #171d2a;
+  --skeleton-b: #232b3d;
+
+  --tone-slate: #8a94a8; --tone-amber: #e0a233; --tone-violet: #9170ec; --tone-teal: #22b5aa;
+  --tone-blue: #4aa3e6; --tone-accent: #6470fb; --tone-green: #2cc088; --tone-red: #f0645a;
 }

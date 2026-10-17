@@ -1,9 +1,9 @@
 /* Páginas: dashboard, métricas, autenticação, demonstração, detalhes, financeiro e comunicação. */
 
 /* ───────── Tons compartilhados (gráficos, ícones) ───────── */
-.tone-slate { background: #98a2b5; } .tone-amber { background: #e8a317; } .tone-violet { background: #7c4dde; }
-.tone-teal { background: #14a39a; } .tone-blue { background: #2d8fd8; } .tone-accent { background: var(--accent-600); }
-.tone-green { background: #18a870; } .tone-red { background: #e5483d; }
+.tone-slate { background: var(--tone-slate); } .tone-amber { background: var(--tone-amber); } .tone-violet { background: var(--tone-violet); }
+.tone-teal { background: var(--tone-teal); } .tone-blue { background: var(--tone-blue); } .tone-accent { background: var(--tone-accent); }
+.tone-green { background: var(--tone-green); } .tone-red { background: var(--tone-red); }
 
 /* ───────── Métricas ───────── */
 .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: var(--space-4); }
@@ -20,7 +20,7 @@
 .metric-link:hover { transform: translateY(-2px); border-color: var(--accent-200); box-shadow: var(--shadow-md); }
 .metric-arrow { position: absolute; bottom: var(--space-5); right: var(--space-5); color: var(--ink-300); transition: transform var(--dur) var(--ease-out), color var(--dur); }
 .metric-link:hover .metric-arrow { color: var(--accent-700); transform: translateX(3px); }
-.metric-primary { color: #fff; background: radial-gradient(120% 140% at 100% 0%, #6a74ff 0%, transparent 55%), linear-gradient(145deg, var(--accent-600), var(--accent-800)); border-color: transparent; box-shadow: var(--shadow-accent); }
+.metric-primary { color: #fff; background: radial-gradient(120% 140% at 100% 0%, #6a74ff 0%, transparent 55%), linear-gradient(145deg, var(--solid-2), var(--solid-4)); border-color: transparent; box-shadow: var(--shadow-accent); }
 .metric-primary p, .metric-primary small { color: rgba(255, 255, 255, 0.78); }
 .metric-primary strong { color: #fff; font-size: 2.25rem; }
 .metric-primary .metric-icon { color: #fff; background: rgba(255, 255, 255, 0.18); }
@@ -88,6 +88,8 @@
 .bar-list small { display: block; margin-top: 6px; color: var(--ink-400); font-size: var(--text-xs); }
 
 /* ───────── Autenticação ───────── */
+.auth-page { position: relative; }
+.theme-toggle-floating { position: absolute; top: var(--space-4); right: calc(50% + var(--space-4)); z-index: 5; background: var(--surface); border-color: var(--line); box-shadow: var(--shadow-xs); }
 .auth-page { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); min-height: 100vh; background: var(--surface); }
 .auth-panel { display: flex; flex-direction: column; justify-content: center; gap: var(--space-5); width: 100%; max-width: 520px; margin: 0 auto; padding: var(--space-10) clamp(24px, 5vw, 64px); }
 .auth-panel .auth-brand { margin-bottom: var(--space-4); color: var(--ink-900); }
@@ -133,8 +135,8 @@
 .demo-bottom-cta { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--space-4); margin-bottom: var(--space-10); padding: var(--space-8); color: #fff; background: radial-gradient(70% 140% at 100% 0%, rgba(106, 116, 255, 0.6), transparent 60%), var(--sidebar-bg); border-radius: var(--radius-xl); box-shadow: var(--shadow-lg); }
 .demo-bottom-cta h2 { color: #fff; font-size: var(--text-2xl); }
 .demo-bottom-cta .eyebrow { color: #a9b2ff; }
-.demo-bottom-cta .button-primary { background: #fff; color: var(--accent-800); box-shadow: none; }
-.demo-bottom-cta .button-primary:hover:not(:disabled) { background: var(--accent-50); color: var(--accent-800); }
+.demo-bottom-cta .button-primary { background: #fff; color: var(--solid-4); box-shadow: none; }
+.demo-bottom-cta .button-primary:hover:not(:disabled) { background: #e8ebff; color: var(--solid-4); }
 
 /* ───────── Detalhes (cliente, equipamento, ordem) ───────── */
 .details-heading { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: var(--space-4); }
@@ -236,6 +238,7 @@ a.related-item:hover { background: var(--accent-50); border-color: var(--accent-
 }
 @media (max-width: 900px) {
   .auth-page { display: block; }
+  .theme-toggle-floating { right: var(--space-4); }
   .auth-aside { display: none; }
   .auth-panel { max-width: 480px; min-height: 100vh; padding: var(--space-8) var(--space-5); }
 }

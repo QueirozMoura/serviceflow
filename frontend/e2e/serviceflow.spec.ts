@@ -554,3 +554,50 @@ test('navigates with the account menu, the breadcrumb and the mobile drawer, wit
     expect(await horizontalOverflow(), path).toBeLessThanOrEqual(0);
   }
 });
+
+test('switches between light and dark themes, persists the choice and avoids a flash of the wrong theme', async ({ page, request }) => {
+  const html = page.locator('html');
+  const toggle = (name: string) => page.getByRole('button', { name });
+
+  // Sem preferência salva, o padrão é o claro (a preferência do sistema operacional é ignorada).
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.goto('/login');
+  await expect(html).toHaveAttribute('data-theme', 'light');
+
+  // Alterna na tela de login, sem recarregar a página.
+  await page.evaluate(() => { (window as unknown as { __noReload: boolean }).__noReload = true; });
+  await toggle('Mudar para tema escuro').click();
+  await expect(html).toHaveAttribute('data-theme', 'dark');
+  expect(await page.evaluate(() => (window as unknown as { __noReload?: boolean }).__noReload)).toBe(true);
+  expect(await page.evaluate(() => localStorage.getItem('serviceflow-theme'))).toBe('dark');
+  const darkBackground = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+
+  // O tema escuro sobrevive ao refresh e é aplicado antes da primeira pintura (script em <head>).
+  await page.reload();
+  await expect(html).toHaveAttribute('data-theme', 'dark');
+  expect(await page.evaluate(() => getComputedStyle(document.body).backgroundColor)).toBe(darkBackground);
+
+  // E sobrevive ao login e à navegação entre rotas.
+  const account = createAccount();
+  await registerAccount(request, account);
+  await page.getByLabel('Email').fill(account.email);
+  await page.getByLabel('Senha').fill(account.password);
+  await page.getByRole('button', { name: /^Entrar/ }).click();
+  await expect(page).toHaveURL(/\/dashboard$/);
+  await expect(html).toHaveAttribute('data-theme', 'dark');
+  await sidebar(page).getByRole('link', { name: 'Clientes' }).click();
+  await expect(page).toHaveURL(/\/customers$/);
+  await expect(html).toHaveAttribute('data-theme', 'dark');
+
+  // Volta ao claro pelo cabeçalho do app e confirma que a escolha também é guardada.
+  await toggle('Mudar para tema claro').click();
+  await expect(html).toHaveAttribute('data-theme', 'light');
+  await page.reload();
+  await expect(html).toHaveAttribute('data-theme', 'light');
+  expect(await page.evaluate(() => localStorage.getItem('serviceflow-theme'))).toBe('light');
+
+  // Um valor inválido guardado é ignorado e o app abre no tema claro.
+  await page.evaluate(() => localStorage.setItem('serviceflow-theme', 'roxo'));
+  await page.reload();
+  await expect(html).toHaveAttribute('data-theme', 'light');
+});

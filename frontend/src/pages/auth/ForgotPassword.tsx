@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import { ApiError } from '../../services/api';
 import { passwordResetService } from '../../services/passwordReset';
 import { Button } from '../../components/ui/Button';
+import { ThemeToggle } from '../../components/ui/ThemeToggle';
 
 function requestError(cause: unknown): string {
   if (cause instanceof ApiError && cause.status === 400) return 'Informe um email válido.';
@@ -36,5 +37,5 @@ export function ForgotPassword() {
       <Button className="button-primary button-submit" type="submit" disabled={submitting}>{submitting ? 'Enviando...' : 'Enviar instruções'}{!submitting ? <ArrowRight size={17} /> : null}</Button>
     </form>;
 
-  return <main className="auth-page"><div className="auth-panel"><div className="auth-brand"><div className="brand-mark"><Wrench size={21} /></div><span>Service<span>Flow</span></span></div><div className="auth-copy"><p className="eyebrow">Recuperar acesso</p><h1>Esqueceu a senha?</h1><p>Informe o email da sua conta e enviaremos um link para criar uma nova senha.</p></div>{body}<p className="auth-note"><Link to="/login">Voltar para o login</Link></p></div><div className="auth-aside"><div className="aside-line" /><p>ServiceFlow</p><h2>Mais clareza para cada serviço.</h2><span>Uma visão precisa da operação para sua equipe atender melhor.</span></div></main>;
+  return <main className="auth-page"><ThemeToggle className="theme-toggle-floating" /><div className="auth-panel"><div className="auth-brand"><div className="brand-mark"><Wrench size={21} /></div><span>Service<span>Flow</span></span></div><div className="auth-copy"><p className="eyebrow">Recuperar acesso</p><h1>Esqueceu a senha?</h1><p>Informe o email da sua conta e enviaremos um link para criar uma nova senha.</p></div>{body}<p className="auth-note"><Link to="/login">Voltar para o login</Link></p></div><div className="auth-aside"><div className="aside-line" /><p>ServiceFlow</p><h2>Mais clareza para cada serviço.</h2><span>Uma visão precisa da operação para sua equipe atender melhor.</span></div></main>;
 }

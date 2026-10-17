@@ -84,11 +84,11 @@ export function Team() {
     </Card>
     <Card className="resource-card">
       <div className="card-heading"><h2>Convites pendentes</h2></div>
-      {invitations.length === 0 ? <p className="inline-empty">Nenhum convite pendente.</p> : <div className="table-wrap"><table className="resource-table"><thead><tr><th>Email</th><th>Papel</th><th>Validade</th><th>Ações</th></tr></thead><tbody>{invitations.map((invitation) => <tr key={invitation.id}><td>{invitation.email}</td><td>{roleLabels[invitation.role] ?? invitation.role}</td><td>{invitation.status === 'EXPIRED' ? 'Expirado' : `até ${date(invitation.expiresAt)}`}</td><td><button className="table-action table-action-text danger-action" type="button" onClick={() => void revoke(invitation)} aria-label={`Revogar convite de ${invitation.email}`}>Revogar</button></td></tr>)}</tbody></table></div>}
+      {invitations.length === 0 ? <p className="inline-empty">Nenhum convite pendente.</p> : <div className="table-wrap" tabIndex={0} role="region" aria-label="Convites pendentes"><table className="resource-table"><thead><tr><th>Email</th><th>Papel</th><th>Validade</th><th>Ações</th></tr></thead><tbody>{invitations.map((invitation) => <tr key={invitation.id}><td>{invitation.email}</td><td>{roleLabels[invitation.role] ?? invitation.role}</td><td>{invitation.status === 'EXPIRED' ? 'Expirado' : `até ${date(invitation.expiresAt)}`}</td><td><button className="table-action table-action-text danger-action" type="button" onClick={() => void revoke(invitation)} aria-label={`Revogar convite de ${invitation.email}`}>Revogar</button></td></tr>)}</tbody></table></div>}
     </Card>
     <Card className="resource-card">
       <div className="card-heading"><h2>Membros</h2></div>
-      <div className="table-wrap"><table className="resource-table"><thead><tr><th>Nome</th><th>Email</th><th>Papel</th><th>Desde</th></tr></thead><tbody>{members.map((member) => <tr key={member.id}><td>{member.name}</td><td>{member.email}</td><td>{roleLabels[member.role] ?? member.role}</td><td>{date(member.createdAt)}</td></tr>)}</tbody></table></div>
+      <div className="table-wrap" tabIndex={0} role="region" aria-label="Membros da equipe"><table className="resource-table"><thead><tr><th>Nome</th><th>Email</th><th>Papel</th><th>Desde</th></tr></thead><tbody>{members.map((member) => <tr key={member.id}><td>{member.name}</td><td>{member.email}</td><td>{roleLabels[member.role] ?? member.role}</td><td>{date(member.createdAt)}</td></tr>)}</tbody></table></div>
     </Card>
     {toast ? <Toast message={toast} onClose={() => setToast('')} /> : null}
   </div>;

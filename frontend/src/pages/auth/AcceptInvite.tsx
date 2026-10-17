@@ -6,6 +6,7 @@ import { ApiError } from '../../services/api';
 import { teamService, tokenFromHash } from '../../services/team';
 import type { InvitationPreview } from '../../types/team';
 import { Button } from '../../components/ui/Button';
+import { ThemeToggle } from '../../components/ui/ThemeToggle';
 import { Loading } from '../../components/ui/Feedback';
 
 const roleLabels: Record<string, string> = { ADMIN: 'Administrador', TECHNICIAN: 'Técnico' };
@@ -63,5 +64,5 @@ export function AcceptInvite() {
       <Button className="button-primary button-submit" type="submit" disabled={submitting}>{submitting ? 'Entrando...' : 'Aceitar convite'}{!submitting ? <ArrowRight size={17} /> : null}</Button>
     </form>;
 
-  return <main className="auth-page"><div className="auth-panel"><div className="auth-brand"><div className="brand-mark"><Wrench size={21} /></div><span>Service<span>Flow</span></span></div><div className="auth-copy"><p className="eyebrow">Convite</p><h1>Entre para a equipe.</h1></div>{body}</div><div className="auth-aside"><div className="aside-line" /><p>ServiceFlow</p><h2>Mais clareza para cada serviço.</h2><span>Uma visão precisa da operação para sua equipe atender melhor.</span></div></main>;
+  return <main className="auth-page"><ThemeToggle className="theme-toggle-floating" /><div className="auth-panel"><div className="auth-brand"><div className="brand-mark"><Wrench size={21} /></div><span>Service<span>Flow</span></span></div><div className="auth-copy"><p className="eyebrow">Convite</p><h1>Entre para a equipe.</h1></div>{body}</div><div className="auth-aside"><div className="aside-line" /><p>ServiceFlow</p><h2>Mais clareza para cada serviço.</h2><span>Uma visão precisa da operação para sua equipe atender melhor.</span></div></main>;
 }

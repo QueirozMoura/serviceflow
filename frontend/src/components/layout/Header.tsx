@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ChevronDown, ChevronRight, LogOut, Menu, UserRound } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import type { User } from '../../types/auth';
+import { ThemeToggle } from '../ui/ThemeToggle';
 
 interface HeaderProps { user: User; onMenuClick: () => void; onLogout: () => void }
 
@@ -78,6 +79,7 @@ export function Header({ user, onMenuClick, onLogout }: HeaderProps) {
           <li aria-current="page">{title}</li>
         </ol>
       </nav>
+      <ThemeToggle className="header-theme" />
       <UserMenu user={user} onLogout={onLogout} />
     </header>
   );

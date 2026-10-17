@@ -60,6 +60,11 @@ describe('Header', () => {
     expect(onLogout).toHaveBeenCalledTimes(1);
   });
 
+  it('offers the theme toggle next to the account menu', () => {
+    renderHeader();
+    expect(screen.getByRole('button', { name: /Mudar para tema (escuro|claro)/ })).toBeTruthy();
+  });
+
   it('translates the role and offers the mobile menu button', () => {
     renderHeader();
     expect(screen.getByText('Proprietário')).toBeTruthy();
