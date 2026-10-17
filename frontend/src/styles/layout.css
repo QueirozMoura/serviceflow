@@ -19,7 +19,10 @@
 .sidebar-brand, .auth-brand { display: flex; align-items: center; gap: 10px; color: var(--sidebar-text-strong); font: 800 1.1875rem var(--font-display); letter-spacing: -0.03em; }
 .sidebar-brand { padding: 0 var(--space-2); }
 .sidebar-brand > span > span, .auth-brand > span > span { color: #8e98ff; }
-.brand-mark { display: grid; place-items: center; width: 34px; height: 34px; flex: 0 0 auto; color: #fff; background: linear-gradient(145deg, var(--solid-1), var(--solid-3)); border-radius: 10px; box-shadow: 0 6px 16px -4px rgba(70, 80, 236, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.25); }
+.brand-mark { display: block; flex: 0 0 auto; box-shadow: none; }
+.brand-mark-bg { fill: var(--solid-2); }
+.brand-mark-flow { fill: none; stroke: #fff; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+.brand-mark-dot { fill: #c6ccff; }
 .sidebar-brand .icon-button { margin-left: auto; color: var(--sidebar-text); }
 .sidebar-brand .icon-button:hover { color: #fff; background: var(--sidebar-raise); }
 

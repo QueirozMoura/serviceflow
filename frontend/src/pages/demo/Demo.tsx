@@ -1,4 +1,5 @@
-import { ArrowRight, BadgeDollarSign, Boxes, CheckCircle2, ClipboardList, ShieldCheck, Users, Wrench } from 'lucide-react';
+import { ArrowRight, BadgeDollarSign, Boxes, CheckCircle2, ClipboardList, ShieldCheck, Users } from 'lucide-react';
+import { BrandMark } from '../../components/ui/BrandMark';
 import { useNavigate } from 'react-router-dom';
 import { Badge } from '../../components/ui/Badge';
 import { Card } from '../../components/ui/Card';
@@ -21,7 +22,7 @@ export function Demo() {
   return (
     <main className="demo-page">
       <header className="demo-header">
-        <div className="auth-brand"><div className="brand-mark"><Wrench size={21} /></div><span>Service<span>Flow</span></span></div>
+        <div className="auth-brand"><BrandMark /><span>Service<span>Flow</span></span></div>
         <div className="demo-header-actions">
           <ThemeToggle /><span className="demo-mode-label"><span className="demo-dot" /> Modo demonstração</span>
           <Button className="button-secondary button-small" type="button" onClick={() => navigate('/login')}>Entrar <ArrowRight size={15} /></Button>

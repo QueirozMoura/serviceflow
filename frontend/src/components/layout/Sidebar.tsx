@@ -9,10 +9,10 @@ import {
   UsersRound,
   ShieldCheck,
   Users,
-  Wrench,
   X,
 } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
+import { BrandMark } from '../ui/BrandMark';
 import type { User } from '../../types/auth';
 import { hasPermission } from '../../utils/permissions';
 
@@ -53,7 +53,7 @@ export function Sidebar({ user, isOpen, onClose, onLogout }: SidebarProps) {
       {isOpen ? <button className="sidebar-overlay" type="button" aria-label="Fechar menu" onClick={onClose} /> : null}
       <aside className={`sidebar ${isOpen ? 'sidebar-open' : ''}`}>
         <div className="sidebar-brand">
-          <div className="brand-mark"><Wrench size={19} /></div>
+          <BrandMark />
           <span>Service<span>Flow</span></span>
           <button className="icon-button mobile-only" type="button" aria-label="Fechar menu" onClick={onClose}>
             <X size={19} />

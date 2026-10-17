@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { ArrowRight, Wrench } from 'lucide-react';
+import { BrandMark } from '../../components/ui/BrandMark';
+import { ArrowRight } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { ApiError } from '../../services/api';
@@ -64,5 +65,5 @@ export function AcceptInvite() {
       <Button className="button-primary button-submit" type="submit" disabled={submitting}>{submitting ? 'Entrando...' : 'Aceitar convite'}{!submitting ? <ArrowRight size={17} /> : null}</Button>
     </form>;
 
-  return <main className="auth-page"><ThemeToggle className="theme-toggle-floating" /><div className="auth-panel"><div className="auth-brand"><div className="brand-mark"><Wrench size={21} /></div><span>Service<span>Flow</span></span></div><div className="auth-copy"><p className="eyebrow">Convite</p><h1>Entre para a equipe.</h1></div>{body}</div><div className="auth-aside"><div className="aside-line" /><p>ServiceFlow</p><h2>Mais clareza para cada serviço.</h2><span>Uma visão precisa da operação para sua equipe atender melhor.</span></div></main>;
+  return <main className="auth-page"><ThemeToggle className="theme-toggle-floating" /><div className="auth-panel"><div className="auth-brand"><BrandMark /><span>Service<span>Flow</span></span></div><div className="auth-copy"><p className="eyebrow">Convite</p><h1>Entre para a equipe.</h1></div>{body}</div><div className="auth-aside"><div className="aside-line" /><p>ServiceFlow</p><h2>Mais clareza para cada serviço.</h2><span>Uma visão precisa da operação para sua equipe atender melhor.</span></div></main>;
 }

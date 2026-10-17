@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react';
-import { ArrowRight, Wrench } from 'lucide-react';
+import { BrandMark } from '../../components/ui/BrandMark';
+import { ArrowRight } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { ApiError } from '../../services/api';
@@ -43,7 +44,7 @@ export function Signup() {
     } catch (cause) { setError(signupError(cause)); } finally { setSubmitting(false); }
   };
 
-  return <main className="auth-page"><ThemeToggle className="theme-toggle-floating" /><div className="auth-panel"><div className="auth-brand"><div className="brand-mark"><Wrench size={21} /></div><span>Service<span>Flow</span></span></div><div className="auth-copy"><p className="eyebrow">Crie sua conta</p><h1>Comece a organizar sua assistência.</h1><p>Você será o proprietário da conta e poderá convidar sua equipe depois.</p></div><form className="login-form" onSubmit={(event) => void submit(event)} noValidate>
+  return <main className="auth-page"><ThemeToggle className="theme-toggle-floating" /><div className="auth-panel"><div className="auth-brand"><BrandMark /><span>Service<span>Flow</span></span></div><div className="auth-copy"><p className="eyebrow">Crie sua conta</p><h1>Comece a organizar sua assistência.</h1><p>Você será o proprietário da conta e poderá convidar sua equipe depois.</p></div><form className="login-form" onSubmit={(event) => void submit(event)} noValidate>
     <label>Nome da empresa<input value={form.organizationName} onChange={set('organizationName')} placeholder="Minha Assistência Técnica" autoComplete="organization" /></label>
     <label>Seu nome<input value={form.name} onChange={set('name')} placeholder="Seu nome completo" autoComplete="name" /></label>
     <label>Email<input type="email" value={form.email} onChange={set('email')} placeholder="voce@empresa.com" autoComplete="email" /></label>
