@@ -1,5 +1,5 @@
-import { Prisma, QuoteStatus, type PrismaClient, type Quote, type ServiceItem } from '@prisma/client';
-import { guardDueValueChange, lockQuoteRow, lockServiceOrderRow } from '../shared/due-value.js';
+import { Prisma, QuoteStatus, ServiceOrderStatus, type PrismaClient, type Quote, type ServiceItem } from '@prisma/client';
+import { guardDueValueChange, lockEditableServiceOrder, lockQuoteRow } from '../shared/due-value.js';
 import { isForeignKeyRestriction } from '../service-orders/repository.js';
 import type { CreateQuoteInput, CreateServiceItemInput, UpdateQuoteInput, UpdateServiceItemInput } from './schemas.js';
 
@@ -13,7 +13,8 @@ export interface QuoteRepository {
   findByServiceOrder(organizationId: string, serviceOrderId: string): Promise<QuoteRecord | null>;
   create(organizationId: string, serviceOrderId: string, input: CreateQuoteInput): Promise<QuoteRecord>;
   update(organizationId: string, serviceOrderId: string, input: UpdateQuoteInput): Promise<QuoteRecord | null>;
-  updateStatus(organizationId: string, serviceOrderId: string, status: QuoteStatus): Promise<QuoteRecord | null>;
+  /** actor: quem decide; advanceServiceOrder = pode tambem levar a OS de WAITING_APPROVAL a APPROVED (atomicamente). */
+  updateStatus(organizationId: string, serviceOrderId: string, status: QuoteStatus, actor?: { userId: string; advanceServiceOrder: boolean }): Promise<QuoteRecord | null>;
   delete(organizationId: string, serviceOrderId: string): Promise<boolean>;
   addItem(organizationId: string, serviceOrderId: string, input: CreateServiceItemInput): Promise<QuoteRecord>;
   updateItem(organizationId: string, serviceOrderId: string, itemId: string, input: UpdateServiceItemInput): Promise<QuoteRecord | null>;
@@ -34,7 +35,8 @@ type Transaction = Prisma.TransactionClient;
 // Serializa as mutacoes de itens de um mesmo orcamento seguindo a ordem global de locks (OS e depois orcamento, ver
 // shared/due-value): cada uma le os itens ja confirmados pelas anteriores e grava um total que reflete a soma real.
 async function lockQuote(transaction: Transaction, organizationId: string, serviceOrderId: string): Promise<string | null> {
-  if (!(await lockServiceOrderRow(transaction, organizationId, serviceOrderId))) return null;
+  // OS entregue ou cancelada nao aceita nenhuma alteracao de orcamento.
+  if ((await lockEditableServiceOrder(transaction, organizationId, serviceOrderId)) === null) return null;
   return lockQuoteRow(transaction, organizationId, serviceOrderId);
 }
 
@@ -57,7 +59,10 @@ export class PrismaQuoteRepository implements QuoteRepository {
 
   async create(organizationId: string, serviceOrderId: string, input: CreateQuoteInput): Promise<QuoteRecord> {
     try {
-      return await this.db.quote.create({ data: { serviceOrderId, status: QuoteStatus.PENDING, total: new Prisma.Decimal(0), ...input }, include: quoteInclude });
+      return await this.db.$transaction(async (transaction) => {
+        if ((await lockEditableServiceOrder(transaction, organizationId, serviceOrderId)) === null) throw new QuoteNotFoundError();
+        return transaction.quote.create({ data: { serviceOrderId, status: QuoteStatus.PENDING, total: new Prisma.Decimal(0), ...input }, include: quoteInclude });
+      });
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') throw new QuoteAlreadyExistsError();
       throw error;
@@ -65,31 +70,40 @@ export class PrismaQuoteRepository implements QuoteRepository {
   }
 
   async update(organizationId: string, serviceOrderId: string, input: UpdateQuoteInput): Promise<QuoteRecord | null> {
-    const quote = await this.findByServiceOrder(organizationId, serviceOrderId);
-    if (!quote) return null;
-    return this.db.quote.update({ where: { id: quote.id }, data: input, include: quoteInclude });
-  }
-
-  async updateStatus(organizationId: string, serviceOrderId: string, status: QuoteStatus): Promise<QuoteRecord | null> {
     return this.db.$transaction(async (transaction) => {
       const quoteId = await lockQuote(transaction, organizationId, serviceOrderId);
+      if (!quoteId) return null;
+      return transaction.quote.update({ where: { id: quoteId }, data: input, include: quoteInclude });
+    });
+  }
+
+  async updateStatus(organizationId: string, serviceOrderId: string, status: QuoteStatus, actor?: { userId: string; advanceServiceOrder: boolean }): Promise<QuoteRecord | null> {
+    return this.db.$transaction(async (transaction) => {
+      const orderStatus = await lockEditableServiceOrder(transaction, organizationId, serviceOrderId);
+      if (orderStatus === null) return null;
+      const quoteId = await lockQuoteRow(transaction, organizationId, serviceOrderId);
       if (!quoteId) return null;
       // Relido sob o lock: duas decisoes simultaneas (ex.: aprovar e rejeitar) nao podem ambas vencer.
       const current = await transaction.quote.findUniqueOrThrow({ where: { id: quoteId }, select: { status: true } });
       if (!QUOTE_TRANSITIONS[current.status].includes(status)) throw new QuoteTransitionError();
-      return guardDueValueChange(transaction, organizationId, serviceOrderId, async () => {
-        await transaction.quote.update({ where: { id: quoteId }, data: { status } });
-        return transaction.quote.findUniqueOrThrow({ where: { id: quoteId }, include: quoteInclude });
-      });
+      await guardDueValueChange(transaction, organizationId, serviceOrderId, () => transaction.quote.update({ where: { id: quoteId }, data: { status } }));
+      // Aprovar o orcamento de uma OS que aguarda aprovacao a aprova no mesmo commit (transicao valida: WAITING_APPROVAL -> APPROVED).
+      if (status === QuoteStatus.APPROVED && actor?.advanceServiceOrder && orderStatus === ServiceOrderStatus.WAITING_APPROVAL) {
+        await transaction.serviceOrder.update({ where: { id: serviceOrderId }, data: { status: ServiceOrderStatus.APPROVED } });
+        await transaction.serviceOrderStatusHistory.create({ data: { organizationId, serviceOrderId, fromStatus: orderStatus, toStatus: ServiceOrderStatus.APPROVED, changedByUserId: actor.userId } });
+      }
+      return transaction.quote.findUniqueOrThrow({ where: { id: quoteId }, include: quoteInclude });
     });
   }
 
   async delete(organizationId: string, serviceOrderId: string): Promise<boolean> {
-    const quote = await this.findByServiceOrder(organizationId, serviceOrderId);
-    if (!quote) return false;
     try {
-      await this.db.quote.delete({ where: { id: quote.id } });
-      return true;
+      return await this.db.$transaction(async (transaction) => {
+        const quoteId = await lockQuote(transaction, organizationId, serviceOrderId);
+        if (!quoteId) return false;
+        await transaction.quote.delete({ where: { id: quoteId } });
+        return true;
+      });
     } catch (error) {
       if (isForeignKeyRestriction(error)) throw new QuoteInUseError();
       throw error;

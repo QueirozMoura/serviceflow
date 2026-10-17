@@ -1,4 +1,5 @@
 import { Prisma, type Diagnosis, type PrismaClient } from '@prisma/client';
+import { lockEditableServiceOrder } from '../shared/due-value.js';
 import type { CreateDiagnosisInput, UpdateDiagnosisInput } from './schemas.js';
 
 export type DiagnosisRecord = Pick<Diagnosis, 'id' | 'serviceOrderId' | 'description' | 'estimatedCost' | 'createdAt' | 'updatedAt'> & {
@@ -31,7 +32,10 @@ export class PrismaDiagnosisRepository implements DiagnosisRepository {
 
   async create(organizationId: string, serviceOrderId: string, input: CreateDiagnosisInput): Promise<DiagnosisRecord> {
     try {
-      return await this.db.diagnosis.create({ data: { serviceOrderId, ...input }, include: diagnosisInclude });
+      return await this.db.$transaction(async (transaction) => {
+        if ((await lockEditableServiceOrder(transaction, organizationId, serviceOrderId)) === null) throw new DiagnosisServiceOrderNotFoundError();
+        return transaction.diagnosis.create({ data: { serviceOrderId, ...input }, include: diagnosisInclude });
+      });
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') throw new DiagnosisAlreadyExistsError();
       throw error;
@@ -39,23 +43,31 @@ export class PrismaDiagnosisRepository implements DiagnosisRepository {
   }
 
   async update(organizationId: string, serviceOrderId: string, input: UpdateDiagnosisInput): Promise<DiagnosisRecord | null> {
-    const diagnosis = await this.findByServiceOrder(organizationId, serviceOrderId);
-    if (!diagnosis) return null;
-    return this.db.diagnosis.update({ where: { id: diagnosis.id }, data: input, include: diagnosisInclude });
+    return this.db.$transaction(async (transaction) => {
+      if ((await lockEditableServiceOrder(transaction, organizationId, serviceOrderId)) === null) return null;
+      const diagnosis = await transaction.diagnosis.findFirst({ where: { serviceOrderId } });
+      if (!diagnosis) return null;
+      return transaction.diagnosis.update({ where: { id: diagnosis.id }, data: input, include: diagnosisInclude });
+    });
   }
 
   async delete(organizationId: string, serviceOrderId: string): Promise<boolean> {
-    const diagnosis = await this.findByServiceOrder(organizationId, serviceOrderId);
-    if (!diagnosis) return false;
     try {
-      await this.db.diagnosis.delete({ where: { id: diagnosis.id } });
-      return true;
+      return await this.db.$transaction(async (transaction) => {
+        if ((await lockEditableServiceOrder(transaction, organizationId, serviceOrderId)) === null) return false;
+        const diagnosis = await transaction.diagnosis.findFirst({ where: { serviceOrderId } });
+        if (!diagnosis) return false;
+        await transaction.diagnosis.delete({ where: { id: diagnosis.id } });
+        return true;
+      });
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2003') throw new DiagnosisInUseError();
       throw error;
     }
   }
 }
+
+export class DiagnosisServiceOrderNotFoundError extends Error {}
 
 export class DiagnosisAlreadyExistsError extends Error {
   constructor() {

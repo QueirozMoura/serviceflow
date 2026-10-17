@@ -307,7 +307,9 @@ test('applies role permissions: a technician is restricted and an admin promoted
   // Regras de status: o tecnico avanca a OS e consulta/edita o orcamento, mas nao aprova nem cancela a OS e nao decide o orcamento.
   const quoteUrl = `${api}/service-orders/${serviceOrder.id}/quote`;
   expect((await page.request.post(quoteUrl, { data: {} })).status()).toBe(201);
-  expect((await page.request.post(`${quoteUrl}/items`, { data: { description: 'Teclado', quantity: '1', unitPrice: '120.00', type: 'PART' } })).status()).toBe(201);
+  // Itens definem o preco (e o total): o tecnico nao os cria; isso fica para o ADMIN, mais abaixo.
+  const item = { description: 'Teclado', quantity: '1', unitPrice: '120.00', type: 'PART' };
+  expect((await page.request.post(`${quoteUrl}/items`, { data: item })).status()).toBe(403);
   expect((await page.request.get(quoteUrl)).status()).toBe(200);
   expect((await page.request.patch(`${api}/service-orders/${serviceOrder.id}/status`, { data: { status: 'DELIVERED' } })).status()).toBe(409);
   expect((await page.request.patch(`${api}/service-orders/${serviceOrder.id}/status`, { data: { status: 'WAITING_DIAGNOSIS' } })).status()).toBe(200);
@@ -347,6 +349,7 @@ test('applies role permissions: a technician is restricted and an admin promoted
   await expect(page.getByRole('list', { name: 'Histórico de comunicação' }).getByText(/Registrada por E2E Owner/).first()).toBeVisible();
   expect((await page.request.get(`${api}/service-orders/${serviceOrder.id}/payments`)).status()).toBe(200);
   expect((await page.request.delete(`${api}/service-orders/${serviceOrder.id}/diagnosis`)).status()).toBe(204);
+  expect((await page.request.post(`${quoteUrl}/items`, { data: item })).status()).toBe(201);
 
   // O ADMIN decide o orcamento, aprova e cancela a OS, pela interface e pela API.
   await page.reload();
@@ -354,16 +357,19 @@ test('applies role permissions: a technician is restricted and an admin promoted
   await page.getByRole('button', { name: 'Aprovado' }).click();
   await expect(page.getByRole('button', { name: 'Aprovado' })).toHaveCount(0);
   expect((await page.request.get(quoteUrl)).status()).toBe(200);
-  await page.getByRole('button', { name: 'Aprovada' }).click();
-  await expect(page.getByText('Status alterado para Aprovada.')).toBeVisible();
+  // Aprovar o orcamento de uma OS que aguarda aprovacao a aprova na mesma operacao: nao ha mais o botao "Aprovada".
+  await expect(page.getByRole('button', { name: 'Aprovada' })).toHaveCount(0);
+  await expect((await page.request.get(`${api}/service-orders/${serviceOrder.id}`)).json()).resolves.toMatchObject({ serviceOrder: { status: 'APPROVED' } });
+  // Pagamentos exigem valor devido definido e Idempotency-Key; ficam PENDING (nao impedem cancelar) e precisam existir
+  // antes de cancelar, pois uma OS cancelada nao aceita novos pagamentos.
+  expect((await page.request.patch(`${api}/service-orders/${serviceOrder.id}`, { data: { finalValue: '80.00' } })).status()).toBe(200);
+  expect((await page.request.post(`${api}/service-orders/${serviceOrder.id}/payments`, { data: { amount: '80.00', method: 'PIX' }, headers: { 'Idempotency-Key': 'e2e-module-payment-0001' } })).status()).toBe(201);
+  await page.reload();
   await page.getByRole('button', { name: 'Cancelada' }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Excluir' }).click();
   await expect(page.getByText('Status alterado para Cancelada.')).toBeVisible();
 
   // Telas de modulo: uma requisicao agregada por tela e nenhuma chamada por OS.
-  // Pagamentos exigem valor devido definido e Idempotency-Key.
-  expect((await page.request.patch(`${api}/service-orders/${serviceOrder.id}`, { data: { finalValue: '80.00' } })).status()).toBe(200);
-  expect((await page.request.post(`${api}/service-orders/${serviceOrder.id}/payments`, { data: { amount: '80.00', method: 'PIX' }, headers: { 'Idempotency-Key': 'e2e-module-payment-0001' } })).status()).toBe(201);
   for (const [path, heading, aggregated] of [['/quotes', 'Orçamentos', '/api/quotes'], ['/payments', 'Pagamentos', '/api/payments'], ['/warranties', 'Garantias', '/api/warranties']] as const) {
     const requested: string[] = [];
     const onRequest = (request: { url(): string }) => { if (request.url().includes('/api/')) requested.push(new URL(request.url()).pathname); };

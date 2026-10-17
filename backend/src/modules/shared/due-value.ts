@@ -1,4 +1,5 @@
-import { PaymentStatus, Prisma, QuoteStatus } from '@prisma/client';
+import { PaymentStatus, Prisma, QuoteStatus, type ServiceOrderStatus } from '@prisma/client';
+import { assertServiceOrderEditable } from './lifecycle.js';
 
 // Valor devido de uma ordem de servico e a sincronizacao entre quem o define (finalValue, itens e status do orcamento)
 // e quem o consome (pagamentos). Todos os caminhos de escrita seguem a MESMA ordem de locks, dentro de uma transacao:
@@ -16,11 +17,18 @@ export const RESERVING_STATUSES = [PaymentStatus.PENDING, PaymentStatus.PAID];
 /** A alteracao deixaria pagamentos PENDING/PAID acima do valor devido (ou sem valor devido determinavel). */
 export class DueValueBelowReservedError extends Error {}
 
-/** Trava a linha da OS (escopada pela organizacao) ate o fim da transacao. false se ela nao existe na organizacao. */
-export async function lockServiceOrderRow(transaction: Transaction, organizationId: string, serviceOrderId: string): Promise<boolean> {
-  const rows = await transaction.$queryRaw<Array<{ id: string }>>(Prisma.sql`
-    SELECT so."id" FROM "ServiceOrder" so WHERE so."id" = ${serviceOrderId} AND so."organizationId" = ${organizationId} FOR UPDATE`);
-  return rows.length === 1;
+/** Trava a linha da OS (escopada pela organizacao) ate o fim da transacao e devolve o status ATUAL. null se nao existe na organizacao. */
+export async function lockServiceOrderRow(transaction: Transaction, organizationId: string, serviceOrderId: string): Promise<ServiceOrderStatus | null> {
+  const rows = await transaction.$queryRaw<Array<{ status: ServiceOrderStatus }>>(Prisma.sql`
+    SELECT so."status"::text AS "status" FROM "ServiceOrder" so WHERE so."id" = ${serviceOrderId} AND so."organizationId" = ${organizationId} FOR UPDATE`);
+  return rows[0]?.status ?? null;
+}
+
+/** Como lockServiceOrderRow, mas recusa (ServiceOrderLockedError) se a OS esta DELIVERED ou CANCELLED. */
+export async function lockEditableServiceOrder(transaction: Transaction, organizationId: string, serviceOrderId: string): Promise<ServiceOrderStatus | null> {
+  const status = await lockServiceOrderRow(transaction, organizationId, serviceOrderId);
+  if (status !== null) assertServiceOrderEditable(status);
+  return status;
 }
 
 /** Trava a linha do orcamento da OS. Chamar somente depois de lockServiceOrderRow. null se nao ha orcamento. */

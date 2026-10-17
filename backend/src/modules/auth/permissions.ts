@@ -3,13 +3,15 @@ import { QuoteStatus, ServiceOrderStatus, UserRole } from '@prisma/client';
 // Fonte unica da autorizacao por papel. Formato: <recurso>:<acao>.
 //   write  = criar e editar (inclui mudar status e itens de orcamento)
 //   delete = excluir o registro
+//   value  = definir valor estimado/final da OS; price = criar, remover ou alterar preco/quantidade de itens do orcamento
+//   (tudo que muda dinheiro; o tecnico nao tem)
 //   approve / cancel / reject / expire / status = decisoes sobre o status, exigidas alem de write
 export const PERMISSIONS = [
   'customers:read', 'customers:write', 'customers:delete',
   'equipment:read', 'equipment:write', 'equipment:delete',
-  'serviceOrders:read', 'serviceOrders:write', 'serviceOrders:approve', 'serviceOrders:cancel', 'serviceOrders:delete',
+  'serviceOrders:read', 'serviceOrders:write', 'serviceOrders:approve', 'serviceOrders:cancel', 'serviceOrders:delete', 'serviceOrders:value',
   'diagnoses:read', 'diagnoses:write', 'diagnoses:delete',
-  'quotes:read', 'quotes:write', 'quotes:approve', 'quotes:reject', 'quotes:expire', 'quotes:delete',
+  'quotes:read', 'quotes:write', 'quotes:price', 'quotes:approve', 'quotes:reject', 'quotes:expire', 'quotes:delete',
   'payments:read', 'payments:write', 'payments:delete',
   'warranties:read', 'warranties:write', 'warranties:status', 'warranties:delete',
   'messages:generate', 'messages:read', 'messages:write',
@@ -21,7 +23,8 @@ export type Permission = (typeof PERMISSIONS)[number];
 // OWNER e ADMIN: hoje nenhuma operacao e exclusiva do dono (nao ha gestao de usuarios nem de dados da organizacao).
 // TECHNICIAN: lista explicita (negado por padrao). Novas permissoes nao chegam ao tecnico sem serem adicionadas aqui.
 // Regras de negocio do TECHNICIAN: NAO aprova nem cancela OS (serviceOrders:approve / :cancel, em nenhum estado),
-// NAO aprova, rejeita nem expira orcamento (quotes:approve / :reject / :expire), NAO altera o status de garantia
+// NAO aprova, rejeita nem expira orcamento (quotes:approve / :reject / :expire), NAO altera valores (serviceOrders:value,
+// quotes:price), NAO altera o status de garantia
 // (warranties:status) e NAO acessa pagamentos. Ele PODE avancar e entregar a OS (as demais transicoes, validadas
 // pela rota), consultar/editar orcamentos e itens, e criar/editar garantias.
 const technicianPermissions: readonly Permission[] = [

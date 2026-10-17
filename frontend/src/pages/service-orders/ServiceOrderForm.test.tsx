@@ -11,6 +11,8 @@ const serviceOrderServiceMock = vi.hoisted(() => ({ get: vi.fn(), create: vi.fn(
 vi.mock('../../services/customers', () => ({ customersService: customerServiceMock }));
 vi.mock('../../services/equipment', () => ({ equipmentService: equipmentServiceMock }));
 vi.mock('../../services/service-orders', () => ({ serviceOrdersService: serviceOrderServiceMock }));
+const authMock = vi.hoisted(() => ({ denied: new Set<string>() }));
+vi.mock('../../contexts/AuthContext', () => ({ useAuth: () => ({ can: (permission: string) => !authMock.denied.has(permission) }) }));
 
 import { ServiceOrderForm } from './ServiceOrderForm';
 
@@ -43,6 +45,7 @@ async function fillNewOrder() {
 describe('ServiceOrderForm', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    authMock.denied.clear();
     customerServiceMock.options.mockResolvedValue({ customers: [{ id: customer.id, name: customer.name, phone: customer.phone }] });
     equipmentServiceMock.options.mockResolvedValue({ equipment: [{ id: equipment.id, customerId: equipment.customerId, type: equipment.type, brand: equipment.brand, model: equipment.model, serialNumber: equipment.serialNumber }] });
     serviceOrderServiceMock.create.mockResolvedValue({ serviceOrder: order });
@@ -81,6 +84,17 @@ describe('ServiceOrderForm', () => {
     fireEvent.submit(screen.getByRole('button', { name: /Salvar ordem/ }).closest('form')!);
 
     await waitFor(() => expect(serviceOrderServiceMock.update).toHaveBeenCalledWith('order-1', expect.objectContaining({ finalValue: '250.75' })));
+  });
+
+  it('disables the estimated and final value fields for a role without serviceOrders:value, keeping the rest editable', async () => {
+    authMock.denied.add('serviceOrders:value');
+    serviceOrderServiceMock.get.mockResolvedValue({ serviceOrder: order });
+    renderPage('/service-orders/order-1/edit');
+
+    expect(await screen.findByDisplayValue('125.50')).toBeTruthy();
+    expect((screen.getByLabelText(/Valor estimado/) as HTMLInputElement).disabled).toBe(true);
+    expect((screen.getByLabelText(/Valor final/) as HTMLInputElement).disabled).toBe(true);
+    expect((screen.getByLabelText(/Problema relatado/) as HTMLTextAreaElement).disabled).toBe(false);
   });
 
   it('disables the save action while a request is pending', async () => {

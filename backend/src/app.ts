@@ -13,6 +13,7 @@ import type { PaymentRepository } from './modules/payments/repository.js';
 import type { WarrantyRepository } from './modules/warranties/repository.js';
 import type { DashboardRepository } from './modules/dashboard/repository.js';
 import type { MessageRepository } from './modules/messages/repository.js';
+import { DomainConflictError, FinancialChangeForbiddenError } from './modules/shared/lifecycle.js';
 import { registerSecurityPlugins } from './plugins/security.js';
 import { authRoutes } from './routes/auth.js';
 import { customerRoutes } from './routes/customers.js';
@@ -41,6 +42,15 @@ export function buildApp(options: { authRepository?: AuthRepository; customerRep
   const authRepository = options.authRepository ?? new PrismaAuthRepository(prisma);
 
   app.setErrorHandler((error: FastifyError, request, reply) => {
+    // Regras de negocio do ciclo de vida: conflito com o estado atual (409) ou falta de permissao financeira (403).
+    if (error instanceof DomainConflictError) {
+      request.log.info({ err: error }, 'Request rejected by a business rule');
+      return reply.status(409).send({ statusCode: 409, error: 'Conflict', message: error.message });
+    }
+    if (error instanceof FinancialChangeForbiddenError) {
+      return reply.status(403).send({ statusCode: 403, error: 'Forbidden', message: error.message });
+    }
+
     // Identificadores malformados (ex.: UUID invalido em /:id) chegam ao Prisma e
     // retornam P2023. Isso e entrada invalida do cliente, nao falha do servidor.
     const isInvalidInput = error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2023';

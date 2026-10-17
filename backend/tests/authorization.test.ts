@@ -93,9 +93,15 @@ const routes: RouteCase[] = [
   { method: 'PATCH', url: `/api/service-orders/${id}/quote`, technicianDenied: false },
   { method: 'PATCH', url: `/api/service-orders/${id}/quote/status`, technicianDenied: false },
   { method: 'DELETE', url: `/api/service-orders/${id}/quote`, technicianDenied: true },
-  { method: 'POST', url: `/api/service-orders/${id}/quote/items`, technicianDenied: false },
-  { method: 'PATCH', url: `/api/service-orders/${id}/quote/items/${other}`, technicianDenied: false },
-  { method: 'DELETE', url: `/api/service-orders/${id}/quote/items/${other}`, technicianDenied: false },
+  // Itens mudam o total do orcamento: criar, remover e alterar preco/quantidade sao financeiros (so OWNER/ADMIN).
+  { method: 'POST', url: `/api/service-orders/${id}/quote/items`, technicianDenied: true },
+  { method: 'PATCH', url: `/api/service-orders/${id}/quote/items/${other}`, technicianDenied: true, payload: { unitPrice: '10.00' } },
+  { method: 'PATCH', url: `/api/service-orders/${id}/quote/items/${other}`, technicianDenied: true, payload: { quantity: '2' } },
+  { method: 'PATCH', url: `/api/service-orders/${id}/quote/items/${other}`, technicianDenied: false, payload: { description: 'Troca de peca' } },
+  { method: 'DELETE', url: `/api/service-orders/${id}/quote/items/${other}`, technicianDenied: true },
+  // Valores da OS: so quem tem serviceOrders:value os define (no PATCH, apenas se mudarem; ver testes de integracao).
+  { method: 'POST', url: '/api/service-orders', technicianDenied: true, payload: { customerId: id, equipmentId: id, problemDescription: 'Nao liga', finalValue: '10.00' } },
+  { method: 'POST', url: '/api/service-orders', technicianDenied: true, payload: { customerId: id, equipmentId: id, problemDescription: 'Nao liga', estimatedValue: '10.00' } },
   { method: 'POST', url: `/api/service-orders/${id}/payments`, technicianDenied: true },
   { method: 'GET', url: `/api/service-orders/${id}/payments`, technicianDenied: true },
   { method: 'GET', url: `/api/service-orders/${id}/payments/${other}`, technicianDenied: true },
@@ -155,7 +161,7 @@ describe('role-based authorization', () => {
     });
 
     it('gives every status decision only to OWNER and ADMIN', () => {
-      const decisions = ['serviceOrders:approve', 'serviceOrders:cancel', 'quotes:approve', 'quotes:reject', 'quotes:expire', 'warranties:status'] as const;
+      const decisions = ['serviceOrders:approve', 'serviceOrders:cancel', 'serviceOrders:value', 'quotes:approve', 'quotes:reject', 'quotes:expire', 'quotes:price', 'warranties:status'] as const;
       for (const role of [UserRole.OWNER, UserRole.ADMIN]) for (const permission of decisions) expect(hasPermission(role, permission)).toBe(true);
       for (const permission of decisions) expect(hasPermission(UserRole.TECHNICIAN, permission)).toBe(false);
       expect(permissionsFor(UserRole.TECHNICIAN)).toEqual(expect.arrayContaining(['serviceOrders:write', 'quotes:read', 'quotes:write', 'warranties:read', 'warranties:write']));

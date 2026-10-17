@@ -389,6 +389,34 @@ describe('ServiceOrderDetails', () => {
     });
   });
 
+  describe('orçamento e ciclo de vida da OS', () => {
+    const quote = { id: 'quote-1', serviceOrderId: 'order-1', status: 'PENDING', total: '50.00', notes: null, createdAt: '2026-10-15T10:00:00.000Z', updatedAt: '2026-10-15T10:00:00.000Z', items: [{ id: 'item-1', description: 'Fonte', quantity: '1', unitPrice: '50.00', type: 'PART' }] };
+
+    it('hides adding, editing and removing items from a role without quotes:price', async () => {
+      authMock.denied.add('quotes:price');
+      quotesServiceMock.get.mockResolvedValue({ quote });
+      renderPage();
+
+      expect(await screen.findByText('Fonte')).toBeTruthy();
+      expect(screen.queryByRole('button', { name: /Adicionar item/ })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Editar Fonte' })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Remover Fonte' })).toBeNull();
+    });
+
+    it('shows the order as approved when approving the quote advanced it', async () => {
+      serviceOrderServiceMock.get.mockResolvedValue({ serviceOrder: { ...order, status: 'WAITING_APPROVAL' } });
+      quotesServiceMock.get.mockResolvedValue({ quote });
+      quotesServiceMock.updateStatus.mockResolvedValue({ quote: { ...quote, status: 'APPROVED', serviceOrder: { id: 'order-1', orderNumber: order.orderNumber, status: 'APPROVED' } } });
+      renderPage();
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Aprovado' }));
+      await screen.findByText('Orçamento aprovado.');
+      await waitFor(() => expect(screen.queryByText('Aguardando aprovação')).toBeNull());
+      // Selo do orçamento + selo do estado atual da OS (ambos "Aprovado").
+      expect(screen.getAllByText('Aprovado').length).toBeGreaterThanOrEqual(2);
+    });
+  });
+
   describe('permissões do papel', () => {
     const quote = { id: 'quote-1', serviceOrderId: 'order-1', status: 'PENDING', total: '0.00', notes: null, createdAt: '2026-10-15T10:00:00.000Z', updatedAt: '2026-10-15T10:00:00.000Z', items: [] };
 

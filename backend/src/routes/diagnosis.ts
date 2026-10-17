@@ -4,7 +4,7 @@ import { prisma } from '../lib/prisma.js';
 import { authenticate } from '../middlewares/authenticate.js';
 import { authorize } from '../middlewares/authorize.js';
 import type { AuthRepository } from '../modules/auth/repository.js';
-import { DiagnosisAlreadyExistsError, DiagnosisInUseError, PrismaDiagnosisRepository, type DiagnosisRepository } from '../modules/diagnosis/repository.js';
+import { DiagnosisAlreadyExistsError, DiagnosisInUseError, DiagnosisServiceOrderNotFoundError, PrismaDiagnosisRepository, type DiagnosisRepository } from '../modules/diagnosis/repository.js';
 import { createDiagnosisSchema, updateDiagnosisSchema } from '../modules/diagnosis/schemas.js';
 
 type DiagnosisRoutesOptions = { authRepository?: AuthRepository; diagnosisRepository?: DiagnosisRepository; database?: PrismaClient };
@@ -30,6 +30,7 @@ export async function diagnosisRoutes(app: FastifyInstance, options: DiagnosisRo
       return reply.status(201).send({ diagnosis });
     } catch (error) {
       if (error instanceof DiagnosisAlreadyExistsError) return reply.status(409).send({ statusCode: 409, error: 'Conflict', message: error.message });
+      if (error instanceof DiagnosisServiceOrderNotFoundError) return reply.status(404).send({ statusCode: 404, error: 'Not Found', message: 'Service order not found' });
       throw error;
     }
   });

@@ -629,7 +629,7 @@ describe('financial integrity against a real PostgreSQL database', () => {
           get: (inner, name) => name !== 'serviceOrder' ? Reflect.get(inner, name) : new Proxy(inner.serviceOrder, { get: (delegate, operation) => operation === 'updateMany' ? () => { throw new Error('simulated failure'); } : (Reflect.get(delegate, operation) as (...args: unknown[]) => unknown).bind(delegate) }),
         }))),
       }) as PrismaClient);
-      await expect(failing.update(org.organizationId, order.id, { finalValue: '500.00' })).rejects.toThrow('simulated failure');
+      await expect(failing.update(org.organizationId, order.id, { finalValue: '500.00' }, { canEditValues: true })).rejects.toThrow('simulated failure');
       expect((await dueRow(order.id)).finalValue).toBeNull();
     });
 

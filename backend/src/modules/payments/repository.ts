@@ -1,5 +1,6 @@
-import { PaymentStatus, Prisma, type Payment, type PrismaClient } from '@prisma/client';
+import { PaymentStatus, Prisma, type ServiceOrderStatus, type Payment, type PrismaClient } from '@prisma/client';
 import { lockServiceOrderRow, readDueValue, reservedAmount } from '../shared/due-value.js';
+import { ServiceOrderLockedError, assertServiceOrderEditable, isTerminalStatus } from '../shared/lifecycle.js';
 import type { CreatePaymentInput, UpdatePaymentInput } from './schemas.js';
 
 export type PaymentRecord = Pick<Payment, 'id' | 'organizationId' | 'serviceOrderId' | 'amount' | 'status' | 'method' | 'createdAt' | 'updatedAt'> & {
@@ -28,9 +29,10 @@ type Transaction = Prisma.TransactionClient;
 
 // Trava a linha da OS e le o valor devido vigente (null = indeterminado). Todo fluxo que cria, edita, remove ou muda o
 // status de um pagamento passa por aqui; os caminhos que alteram o valor devido usam o mesmo lock (ver shared/due-value).
-async function lockServiceOrder(transaction: Transaction, organizationId: string, serviceOrderId: string): Promise<{ reference: Prisma.Decimal | null } | undefined> {
-  if (!(await lockServiceOrderRow(transaction, organizationId, serviceOrderId))) return undefined;
-  return { reference: await readDueValue(transaction, organizationId, serviceOrderId) };
+async function lockServiceOrder(transaction: Transaction, organizationId: string, serviceOrderId: string): Promise<{ reference: Prisma.Decimal | null; orderStatus: ServiceOrderStatus } | undefined> {
+  const orderStatus = await lockServiceOrderRow(transaction, organizationId, serviceOrderId);
+  if (orderStatus === null) return undefined;
+  return { reference: await readDueValue(transaction, organizationId, serviceOrderId), orderStatus };
 }
 
 async function assertWithinBalance(transaction: Transaction, organizationId: string, serviceOrderId: string, reference: Prisma.Decimal | null, amount: Prisma.Decimal, excludePaymentId?: string): Promise<void> {
@@ -74,6 +76,8 @@ export class PrismaPaymentRepository implements PaymentRepository {
           if (!matches(existing)) throw new PaymentIdempotencyConflictError();
           return { payment: existing, created: false };
         }
+        // A repeticao de uma operacao ja gravada (acima) e inofensiva; um pagamento NOVO nao entra em OS entregue/cancelada.
+        assertServiceOrderEditable(locked.orderStatus);
         await assertWithinBalance(transaction, organizationId, serviceOrderId, locked.reference, amount);
         const payment = await transaction.payment.create({ data: { organizationId, serviceOrderId, amount, method: input.method, status: PaymentStatus.PENDING, idempotencyKey }, include: paymentInclude });
         return { payment, created: true };
@@ -92,6 +96,7 @@ export class PrismaPaymentRepository implements PaymentRepository {
     return this.db.$transaction(async (transaction) => {
       const locked = await lockServiceOrder(transaction, organizationId, serviceOrderId);
       if (!locked) return null;
+      assertServiceOrderEditable(locked.orderStatus);
       const payment = await transaction.payment.findFirst({ where: { id: paymentId, organizationId, serviceOrderId }, include: paymentInclude });
       if (!payment) return null;
       if (payment.status === PaymentStatus.PAID || payment.status === PaymentStatus.REFUNDED) throw new PaymentImmutableError();
@@ -105,7 +110,11 @@ export class PrismaPaymentRepository implements PaymentRepository {
 
   async updateStatus(organizationId: string, serviceOrderId: string, paymentId: string, status: PaymentStatus): Promise<PaymentRecord | null> {
     return this.db.$transaction(async (transaction) => {
-      if (!(await lockServiceOrder(transaction, organizationId, serviceOrderId))) return null;
+      const locked = await lockServiceOrder(transaction, organizationId, serviceOrderId);
+      if (!locked) return null;
+      // Em OS entregue/cancelada so valem as transicoes que LIBERAM saldo (falha, cancelamento, estorno): regularizar e
+      // possivel, mas nenhum dinheiro novo e confirmado.
+      if (isTerminalStatus(locked.orderStatus) && status === PaymentStatus.PAID) throw new ServiceOrderLockedError();
       // Relido sob o lock: a transicao e validada contra o estado real, nao contra uma leitura anterior.
       const payment = await transaction.payment.findFirst({ where: { id: paymentId, organizationId, serviceOrderId } });
       if (!payment) return null;
@@ -118,7 +127,9 @@ export class PrismaPaymentRepository implements PaymentRepository {
 
   async delete(organizationId: string, serviceOrderId: string, paymentId: string): Promise<boolean> {
     return this.db.$transaction(async (transaction) => {
-      if (!(await lockServiceOrder(transaction, organizationId, serviceOrderId))) return false;
+      const locked = await lockServiceOrder(transaction, organizationId, serviceOrderId);
+      if (!locked) return false;
+      assertServiceOrderEditable(locked.orderStatus);
       const payment = await transaction.payment.findFirst({ where: { id: paymentId, organizationId, serviceOrderId } });
       if (!payment) return false;
       if (payment.status === PaymentStatus.PAID || payment.status === PaymentStatus.REFUNDED) throw new PaymentImmutableError();

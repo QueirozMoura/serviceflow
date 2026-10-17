@@ -232,7 +232,7 @@ describe('role-based authorization against a real PostgreSQL database', () => {
     expect((await warrantyStatus(owner.cookie, 'CANCELLED')).statusCode).toBe(409);
   });
 
-  it('lets only OWNER and ADMIN change a quote status, while the technician can read and edit quotes and items', async () => {
+  it('lets only OWNER and ADMIN change a quote status, while the technician can read quotes and edit notes, but not item prices', async () => {
     const { organizationId, owner } = await organization('Foxtrot');
     const technician = await member(organizationId, UserRole.TECHNICIAN, 'Tecnico5');
     const admin = await member(organizationId, UserRole.ADMIN, 'Admin5');
@@ -243,7 +243,10 @@ describe('role-based authorization against a real PostgreSQL database', () => {
     async function orderWithQuote() {
       const orderId = (await request('POST', '/api/service-orders', technician.cookie, { customerId, equipmentId, problemDescription: 'Orcar' })).json().serviceOrder.id as string;
       expect((await request('POST', `/api/service-orders/${orderId}/quote`, technician.cookie, { notes: 'Rascunho' })).statusCode).toBe(201);
-      expect((await request('POST', `/api/service-orders/${orderId}/quote/items`, technician.cookie, { description: 'Fonte', quantity: '1', unitPrice: '50.00', type: 'PART' })).statusCode).toBe(201);
+      // Itens definem o preco: o tecnico nao os cria (403); o ADMIN sim.
+      const item = { description: 'Fonte', quantity: '1', unitPrice: '50.00', type: 'PART' };
+      expect((await request('POST', `/api/service-orders/${orderId}/quote/items`, technician.cookie, item)).statusCode).toBe(403);
+      expect((await request('POST', `/api/service-orders/${orderId}/quote/items`, admin.cookie, item)).statusCode).toBe(201);
       return orderId;
     }
 

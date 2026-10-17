@@ -1,5 +1,6 @@
 import { DueValueBelowReservedError } from '../modules/shared/due-value.js';
-import { ServiceOrderStatus } from '@prisma/client';
+import { SERVICE_ORDER_TRANSITIONS } from '../modules/shared/lifecycle.js';
+import { hasPermission } from '../modules/auth/permissions.js';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { PrismaClient } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
@@ -21,16 +22,6 @@ function invalidReferences(reply: FastifyReply) {
   return reply.status(400).send({ statusCode: 400, error: 'Bad Request', message: 'Invalid customer or equipment' });
 }
 
-const transitions: Record<ServiceOrderStatus, ServiceOrderStatus[]> = {
-  RECEIVED: [ServiceOrderStatus.WAITING_DIAGNOSIS, ServiceOrderStatus.CANCELLED],
-  WAITING_DIAGNOSIS: [ServiceOrderStatus.WAITING_APPROVAL, ServiceOrderStatus.CANCELLED],
-  WAITING_APPROVAL: [ServiceOrderStatus.APPROVED, ServiceOrderStatus.CANCELLED],
-  APPROVED: [ServiceOrderStatus.IN_PROGRESS, ServiceOrderStatus.CANCELLED],
-  IN_PROGRESS: [ServiceOrderStatus.READY, ServiceOrderStatus.CANCELLED],
-  READY: [ServiceOrderStatus.DELIVERED, ServiceOrderStatus.CANCELLED],
-  DELIVERED: [],
-  CANCELLED: [],
-};
 
 export async function serviceOrderRoutes(app: FastifyInstance, options: ServiceOrderRoutesOptions = {}): Promise<void> {
   const repository = options.serviceOrderRepository ?? new PrismaServiceOrderRepository(options.database ?? prisma);
@@ -41,6 +32,8 @@ export async function serviceOrderRoutes(app: FastifyInstance, options: ServiceO
     const parsed = createServiceOrderSchema.safeParse(request.body);
     if (!parsed.success) return reply.status(400).send({ statusCode: 400, error: 'Bad Request', message: 'Invalid service order data' });
     if (!request.user) return reply.status(401).send({ statusCode: 401, error: 'Unauthorized', message: 'Authentication required' });
+    // Definir valores estimado/final e decisao financeira: so quem tem serviceOrders:value (OWNER/ADMIN).
+    if ((parsed.data.estimatedValue != null || parsed.data.finalValue != null) && !ensurePermission(request, reply, 'serviceOrders:value')) return reply;
     if (!(await repository.referencesBelongToOrganization(request.user.organizationId, parsed.data.customerId, parsed.data.equipmentId))) return invalidReferences(reply);
 
     const serviceOrder = await repository.create(request.user.organizationId, request.user.id, parsed.data);
@@ -71,7 +64,7 @@ export async function serviceOrderRoutes(app: FastifyInstance, options: ServiceO
     if (!ensurePermission(request, reply, serviceOrderStatusPermission(parsed.data.status))) return reply;
     const current = await repository.findById(request.user.organizationId, (request.params as { id: string }).id);
     if (!current) return notFound(reply);
-    if (!transitions[current.status].includes(parsed.data.status)) return reply.status(409).send({ statusCode: 409, error: 'Conflict', message: 'Invalid service order status transition' });
+    if (!SERVICE_ORDER_TRANSITIONS[current.status].includes(parsed.data.status)) return reply.status(409).send({ statusCode: 409, error: 'Conflict', message: 'Invalid service order status transition' });
 
     const serviceOrder = await repository.updateStatus(request.user.organizationId, current.id, request.user.id, parsed.data.status);
     if (!serviceOrder) return notFound(reply);
@@ -89,7 +82,7 @@ export async function serviceOrderRoutes(app: FastifyInstance, options: ServiceO
     if (!(await repository.referencesBelongToOrganization(request.user.organizationId, customerId, equipmentId))) return invalidReferences(reply);
 
     try {
-      const serviceOrder = await repository.update(request.user.organizationId, current.id, parsed.data);
+      const serviceOrder = await repository.update(request.user.organizationId, current.id, parsed.data, { canEditValues: hasPermission(request.user.role, 'serviceOrders:value') });
       if (!serviceOrder) return notFound(reply);
       return reply.send({ serviceOrder });
     } catch (error) {

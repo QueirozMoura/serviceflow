@@ -20,6 +20,8 @@ export interface Quote {
   createdAt: string;
   updatedAt: string;
   items: QuoteItem[];
+  /** Resumo da OS devolvido pela API; muda quando aprovar o orçamento avança a OS. */
+  serviceOrder?: { id: string; orderNumber: string; status: string };
 }
 
 export interface QuoteResponse { quote: Quote; }
