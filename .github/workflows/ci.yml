@@ -1,0 +1,208 @@
+name: CI
+
+# Verificações automáticas em todo pull request e em todo push na main.
+# Somente leitura do repositório; nenhum segredo é usado. Os bancos são serviços PostgreSQL descartáveis do próprio
+# job (credenciais fictícias, válidas apenas dentro da execução). Nada aqui faz deploy nem acessa serviços externos.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '24'
+  # Usuário/senha fictícios do PostgreSQL efêmero do job.
+  CI_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+
+jobs:
+  backend:
+    name: Backend (tipos, lint, testes, integração, build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # `prisma generate` e os scripts leem esta variável; os testes de integração criam e removem bancos temporários
+      # (serviceflow_it_*) neste servidor descartável.
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+      SERVICEFLOW_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Instalar dependências (lockfile)
+        run: npm ci
+
+      # O npm 11 pode não executar os scripts de instalação do Prisma; gerar o client é explícito e obrigatório.
+      - name: Gerar o Prisma Client
+        run: npx prisma generate
+
+      - name: Verificação de tipos
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Testes unitários
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      - name: Garantir o cliente psql (usado pelos testes de integração)
+        run: command -v psql >/dev/null || (sudo apt-get update && sudo apt-get install -y postgresql-client)
+
+      - name: Migrations em dia com o schema (sem divergência)
+        run: |
+          psql "$CI_DATABASE_URL" -v ON_ERROR_STOP=1 -c 'CREATE DATABASE ci_shadow'
+          npx prisma migrate diff \
+            --from-migrations prisma/migrations \
+            --to-schema-datamodel prisma/schema.prisma \
+            --shadow-database-url "postgresql://postgres:postgres@localhost:5432/ci_shadow" \
+            --exit-code
+
+      - name: Testes de integração (PostgreSQL real)
+        run: npm run test:integration
+
+  frontend:
+    name: Frontend (tipos, lint, testes, build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Instalar dependências (lockfile)
+        run: npm ci
+
+      - name: Verificação de tipos
+        run: npx tsc -b
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Testes
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+  e2e:
+    name: E2E (Playwright, PostgreSQL efêmero)
+    needs: [backend, frontend]
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+
+      # O E2E executa o código do backend a partir de frontend/, então ambos precisam estar instalados.
+      - name: Instalar dependências do backend e gerar o Prisma Client
+        working-directory: backend
+        run: |
+          npm ci
+          npx prisma generate
+        env:
+          DATABASE_URL: ${{ env.CI_DATABASE_URL }}
+
+      - name: Instalar dependências do frontend
+        working-directory: frontend
+        run: npm ci
+
+      - name: Garantir o cliente psql (o E2E cria e remove o banco serviceflow_e2e)
+        run: command -v psql >/dev/null || (sudo apt-get update && sudo apt-get install -y postgresql-client)
+
+      # O E2E lê o servidor de backend/.env (aceita só localhost) e usa o banco serviceflow_e2e, que ele mesmo cria/remove.
+      - name: Apontar o E2E para o PostgreSQL efêmero
+        run: printf 'DATABASE_URL=%s\n' "$CI_DATABASE_URL" > backend/.env
+
+      - name: Instalar o Chromium do Playwright
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+
+      - name: Testes E2E
+        working-directory: frontend
+        run: npm run e2e
+
+      - name: Anexar relatório do Playwright (somente em falha)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            frontend/playwright-report
+            frontend/test-results
+          retention-days: 7
+
+  # Informativo: o alerta conhecido do Prisma CLI (ver docs/OPERACAO.md) mantém o backend com 3 achados "high" enquanto
+  # não houver migração para o Prisma 7. O job reporta, mas não bloqueia; qualquer alerta NOVO aparece aqui.
+  audit:
+    name: Auditoria de dependências (informativo)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    continue-on-error: true
+    strategy:
+      matrix:
+        project: [backend, frontend]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: npm audit (${{ matrix.project }})
+        working-directory: ${{ matrix.project }}
+        run: npm audit --audit-level=high

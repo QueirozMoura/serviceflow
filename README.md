@@ -148,6 +148,8 @@ Decisões de arquitetura que valem conhecer:
 
 ```text
 serviceflow/
+├── .github/workflows/ci.yml        # integração contínua (GitHub Actions)
+├── docs/OPERACAO.md                # roteiro de deploy, migrations, backup e pendências
 ├── backend/
 │   ├── prisma/
 │   │   ├── schema.prisma            # modelos e enums
@@ -427,17 +429,22 @@ As respostas de erro seguem o formato `{ statusCode, error, message }`.
 
 ## Implantação
 
-O repositório não contém Dockerfile, pipeline de CI/CD nem manifesto de hospedagem do backend. O que existe:
+O roteiro operacional completo está em **[`docs/OPERACAO.md`](docs/OPERACAO.md)**: variáveis obrigatórias, opcionais e por funcionalidade; ordem de deploy; migrations em produção; verificação de saúde; backup e restauração; recuperação de um deploy problemático; e-mail (Resend); proxy, cookies e Google OAuth; estado das dependências; e a lista de pendências classificada (bloqueadores, necessário antes de usuários reais, melhorias futuras).
 
-- [`frontend/vercel.json`](frontend/vercel.json): configuração para hospedar o frontend na Vercel, reescrevendo `/api/*` para o backend publicado e as demais rotas para `index.html` (SPA).
-- Backend: `npm run build`, `npm run prisma:deploy` (migrations) e `npm start`.
+Resumo do que o repositório contém e do que **não** contém:
 
-Para produção, atente-se a:
+- [`frontend/vercel.json`](frontend/vercel.json): hospedagem do frontend na Vercel, reescrevendo `/api/*` para o backend publicado e as demais rotas para `index.html` (SPA).
+- [`.github/workflows/ci.yml`](.github/workflows/ci.yml): integração contínua (veja [Integração contínua](#integração-contínua)).
+- Backend: `npm ci && npx prisma generate && npm run build`, `npm run prisma:deploy` (migrations; **nunca** `migrate dev`/`reset` em produção) e `npm start`.
+- **Não há** Dockerfile, manifesto do Render nem configuração do banco no repositório: plano, política de backup e valores reais das variáveis precisam ser confirmados manualmente nos painéis dos provedores.
 
-1. `NODE_ENV=production`, `HOST` público, `CORS_ORIGIN` com a origem real do frontend e `DATABASE_URL` com credenciais próprias (e SSL, se o provedor exigir).
-2. `TRUST_PROXY` com o número correto de proxies reversos; caso contrário o rate limit enxerga o IP do proxy.
-3. Se usar Google OAuth, registrar o `GOOGLE_REDIRECT_URI` no Google Cloud e definir o conjunto completo de variáveis. O cookie de sessão é emitido pelo domínio que serve o callback; valide o fluxo completo no ambiente real.
-4. Estratégia de backup e recuperação do PostgreSQL, que depende do provedor e não está definida aqui.
+Verificação rápida após um deploy: `GET /api/health` deve responder `{"status":"ok"}` (HTTP 503 se a API não alcançar o banco).
+
+> **A recuperação de senha só funciona depois que o Resend for configurado e testado de verdade** (domínio remetente verificado, `RESEND_API_KEY` e `MAIL_FROM`). Isso ainda não foi feito em produção.
+
+### Integração contínua
+
+O workflow roda em *pull requests* e em *pushes* na `main`, sem segredos, com PostgreSQL efêmero: `npm ci`, tipos, lint, testes unitários e build do backend; divergência entre migrations e schema; testes de integração; tipos, lint, testes e build do frontend; E2E com Playwright; e uma auditoria de dependências informativa. O workflow foi validado localmente (schema oficial e execução dos mesmos passos em cópia limpa), mas **ainda não foi executado no GitHub Actions**: confira a aba *Actions* após o push.
 
 ## Limitações conhecidas
 
@@ -449,8 +456,8 @@ Para produção, atente-se a:
 - **Orçamento aprovado** continua editável por proprietário e administrador, desde que não deixe pagamentos ativos acima do valor devido.
 - **Sem trilha de auditoria geral.** Há histórico de status das ordens, mas não de quem alterou valores, itens ou pagamentos.
 - **Observabilidade básica:** apenas o log padrão do Fastify e o endpoint de saúde.
-- **Sem CI e sem licença definida** no repositório.
-- **Dependências com `latest`** nos `package.json` (versões fixadas apenas pelo lockfile).
+- **Sem licença definida** no repositório. A CI existe, mas sua primeira execução no GitHub ainda não foi confirmada.
+- **Dependências com `latest`** nos `package.json` (versões fixadas apenas pelo lockfile; use `npm ci`) e **3 alertas de severidade alta no `npm audit` do backend**, todos da mesma cadeia transitiva do Prisma CLI (`deepmerge-ts`), sem correção compatível na linha 6 do Prisma. Detalhes e mitigação em [`docs/OPERACAO.md`](docs/OPERACAO.md#9-dependências-e-vulnerabilidades).
 
 ## Próximos passos
 
@@ -459,7 +466,7 @@ Itens ainda **não implementados** e considerados para as próximas etapas:
 - Verificação de e-mail.
 - Remoção de membros e troca de papéis.
 - Trilha de auditoria de alterações financeiras e observabilidade (identificador de requisição, rastreio de erros).
-- Pipeline de CI (testes, tipos, lint e build) e fixação de versões das dependências.
+- Fixação das versões `latest` das dependências e atualização automatizada (por exemplo, Dependabot).
 - Impressão ou PDF de ordens e orçamentos.
 - Envio real de mensagens (WhatsApp e e-mail).
 
