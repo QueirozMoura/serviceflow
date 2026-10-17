@@ -198,7 +198,7 @@ Workflow: [`.github/workflows/ci.yml`](../.github/workflows/ci.yml), disparado e
 | `backend` | `npm ci` → `prisma generate` → typecheck → lint → testes unitários → build → checagem de divergência migrations × schema (`prisma migrate diff`) → testes de integração em PostgreSQL real |
 | `frontend` | `npm ci` → `tsc -b` → lint → testes → build |
 | `e2e` | (após os dois acima) backend e frontend instalados, Chromium do Playwright, `npm run e2e` contra um PostgreSQL efêmero; anexa o relatório do Playwright se falhar |
-| `audit` | `npm audit --audit-level=high` nos dois projetos. **Informativo** (`continue-on-error`): hoje reporta o alerta conhecido do Prisma CLI (seção 9) sem bloquear |
+| `audit` | `npm audit --audit-level=high` nos dois projetos. **Informativo**: a saída completa fica no log e, se houver alertas, a etapa emite um aviso (annotation) em vez de falhar, então o job não fica vermelho. Hoje reporta o alerta conhecido do Prisma CLI (seção 9); isso **não** o corrige |
 
 **Estado de verificação:**
 - O YAML foi validado contra o schema oficial de workflows e **os mesmos comandos foram executados localmente em uma cópia limpa do repositório** (instalação com `npm ci`, sem `node_modules`).

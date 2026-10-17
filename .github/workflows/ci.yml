@@ -189,12 +189,14 @@ jobs:
           retention-days: 7
 
   # Informativo: o alerta conhecido do Prisma CLI (ver docs/OPERACAO.md) mantém o backend com 3 achados "high" enquanto
-  # não houver migração para o Prisma 7. O job reporta, mas não bloqueia; qualquer alerta NOVO aparece aqui.
+  # não houver migração para o Prisma 7. A saída COMPLETA do `npm audit` fica no log; quando ele encontra algo, a etapa
+  # registra um aviso (annotation amarela) em vez de falhar, então o job não fica vermelho. Isso NÃO corrige nenhuma
+  # vulnerabilidade: o alerta continua existindo e visível. (`continue-on-error` no job não bastava: ele só evita que a
+  # execução falhe, mas o job e a etapa continuam marcados como falhos.)
   audit:
     name: Auditoria de dependências (informativo)
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    continue-on-error: true
     strategy:
       matrix:
         project: [backend, frontend]
@@ -205,4 +207,11 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
       - name: npm audit (${{ matrix.project }})
         working-directory: ${{ matrix.project }}
-        run: npm audit --audit-level=high
+        run: |
+          set +e
+          npm audit --audit-level=high
+          status=$?
+          if [ "$status" -ne 0 ]; then
+            echo "::warning title=npm audit (${{ matrix.project }}) reportou alertas::npm audit terminou com código $status (alertas de severidade alta ou falha ao consultar o registro). Veja o log desta etapa e docs/OPERACAO.md, seção 9. Informativo: não bloqueia a CI."
+          fi
+          exit 0
