@@ -18,6 +18,8 @@ const statusLabels: Record<string, string> = {
   ACTIVE: 'Ativa',
 };
 
+export const statusLabel = (value: string) => statusLabels[value] ?? value;
+
 export function Badge({ value }: { value: string }) {
-  return <span className={`badge badge-${value.toLowerCase()}`}>{statusLabels[value] ?? value}</span>;
+  return <span className={`badge badge-${value.toLowerCase()}`}>{statusLabel(value)}</span>;
 }

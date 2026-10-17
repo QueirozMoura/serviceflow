@@ -83,7 +83,7 @@ export function Sidebar({ user, isOpen, onClose, onLogout }: SidebarProps) {
         <div className="sidebar-footer">
           <div className="user-mini">
             <div className="avatar avatar-small">{user.name.charAt(0).toUpperCase()}</div>
-            <div className="user-mini-copy"><strong>{user.name}</strong><span>{user.email}</span></div>
+            <div className="user-mini-copy"><strong>{user.name}</strong><span>{user.organization?.name ?? user.email}</span></div>
           </div>
           <button className="logout-button" type="button" onClick={onLogout}><LogOut size={17} /><span>Sair</span></button>
         </div>

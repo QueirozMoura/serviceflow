@@ -389,6 +389,26 @@ describe('ServiceOrderDetails', () => {
     });
   });
 
+  describe('progresso da ordem (stepper)', () => {
+    it('marks the finished steps, the current one, and exposes the position to assistive technology', async () => {
+      serviceOrderServiceMock.get.mockResolvedValue({ serviceOrder: { ...order, status: 'IN_PROGRESS' } });
+      renderPage();
+      const stepper = await screen.findByRole('list', { name: 'Progresso da ordem: etapa 5 de 7' });
+      const steps = within(stepper).getAllByRole('listitem');
+      expect(steps).toHaveLength(7);
+      expect(steps.map((step) => step.className)).toEqual(['is-done', 'is-done', 'is-done', 'is-done', 'is-current', '', '']);
+      expect(steps[4]!.getAttribute('aria-current')).toBe('step');
+      expect(steps[4]!.getAttribute('data-label')).toBe('Em andamento');
+    });
+
+    it('replaces the timeline with a clear message when the order was cancelled', async () => {
+      serviceOrderServiceMock.get.mockResolvedValue({ serviceOrder: { ...order, status: 'CANCELLED' } });
+      renderPage();
+      expect(await screen.findByText('Esta ordem foi cancelada.')).toBeTruthy();
+      expect(screen.queryByRole('list', { name: /Progresso da ordem/ })).toBeNull();
+    });
+  });
+
   describe('orçamento e ciclo de vida da OS', () => {
     const quote = { id: 'quote-1', serviceOrderId: 'order-1', status: 'PENDING', total: '50.00', notes: null, createdAt: '2026-10-15T10:00:00.000Z', updatedAt: '2026-10-15T10:00:00.000Z', items: [{ id: 'item-1', description: 'Fonte', quantity: '1', unitPrice: '50.00', type: 'PART' }] };
 

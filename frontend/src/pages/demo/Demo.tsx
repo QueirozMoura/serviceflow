@@ -46,7 +46,7 @@ export function Demo() {
           {metrics.map(({ label, value, icon: Icon, color }) => <Card className="metric-card" key={label}><div className={`metric-icon metric-icon-${color}`}><Icon size={19} /></div><div><p>{label}</p><strong>{typeof value === 'number' ? value.toLocaleString('pt-BR') : value}</strong></div></Card>)}
         </div>
         <Card className="demo-orders-card">
-          <div className="card-heading"><div><p className="eyebrow">Acompanhamento</p><h3>Ordens recentes</h3></div><span className="heading-count">Amostra demonstrativa</span></div>
+          <div className="card-heading"><div><p className="eyebrow">Acompanhamento</p><h2>Ordens recentes</h2></div><span className="heading-count">Amostra demonstrativa</span></div>
           <div className="orders-table-wrap"><table><thead><tr><th>Ordem</th><th>Cliente</th><th>Equipamento</th><th>Status</th></tr></thead><tbody>{demoDashboardData.recentServiceOrders.map((order) => <tr key={order.id}><td><strong className="order-number">{order.orderNumber}</strong></td><td>{order.customer.name}</td><td>{[order.equipment.brand, order.equipment.model].filter(Boolean).join(' ')}</td><td><Badge value={order.status} /></td></tr>)}</tbody></table></div>
         </Card>
       </section>

@@ -1,0 +1,71 @@
+/* Reset, tipografia, foco e movimento reduzido. */
+*, *::before, *::after { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--ink-900);
+  font-family: var(--font-ui);
+  font-size: var(--text-md);
+  line-height: 1.5;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: 'cv11', 'ss01';
+}
+
+h1, h2, h3, h4 { margin: 0; font-family: var(--font-display); color: var(--ink-900); letter-spacing: -0.02em; line-height: 1.2; }
+h2, h3 { font-size: var(--text-lg); font-weight: 700; }
+p { margin: 0; }
+a { color: var(--accent-700); text-underline-offset: 3px; }
+a:hover { color: var(--accent-800); }
+small { font-size: var(--text-xs); }
+strong { font-weight: 650; }
+table { border-collapse: collapse; }
+img, svg { max-width: 100%; }
+
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+button:disabled, input:disabled, select:disabled, textarea:disabled { cursor: not-allowed; opacity: 0.6; }
+
+/* Números alinhados em colunas e métricas */
+.tnum, td, th, .metric-card strong, .financial-value, .pagination-page { font-variant-numeric: tabular-nums; }
+
+/* Foco sempre visível, em teclado */
+:focus { outline: none; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--radius-sm); }
+input:focus-visible, select:focus-visible, textarea:focus-visible { outline: none; }
+
+::selection { background: var(--accent-100); color: var(--accent-800); }
+
+/* Utilidades */
+.muted { color: var(--ink-500); }
+.eyebrow { margin: 0 0 var(--space-1); color: var(--accent-700); font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.mobile-only { display: none; }
+.spin { animation: spin 0.9s linear infinite; }
+
+/* Animações compartilhadas */
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes pop { from { opacity: 0; transform: translateY(6px) scale(0.97); } to { opacity: 1; transform: none; } }
+@keyframes slide-in-right { from { opacity: 0; transform: translateX(16px); } to { opacity: 1; transform: none; } }
+@keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+@keyframes grow-x { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+
+/* Quem prefere menos movimento recebe a interface completa, sem animações nem transições */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    animation-delay: 0ms !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .spin { animation: none; }
+}

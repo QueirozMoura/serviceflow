@@ -1,4 +1,4 @@
-import { AlertCircle, LoaderCircle } from 'lucide-react';
+import { AlertCircle } from 'lucide-react';
 
 interface FeedbackProps {
   message: string;
@@ -8,9 +8,11 @@ interface FeedbackProps {
 
 export function Loading({ message = 'Carregando...' }: { message?: string }) {
   return (
-    <div className="feedback" role="status">
-      <LoaderCircle className="spin" size={20} aria-hidden="true" />
-      <span>{message}</span>
+    <div className="feedback feedback-skeleton" role="status">
+      <span className="feedback-caption">{message}</span>
+      <span className="skeleton" aria-hidden="true" />
+      <span className="skeleton" aria-hidden="true" />
+      <span className="skeleton" aria-hidden="true" />
     </div>
   );
 }

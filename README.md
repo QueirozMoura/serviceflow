@@ -176,6 +176,7 @@ serviceflow/
     │   │                            # service-orders, financial, team, profile, demo
     │   ├── routes/                  # rotas e proteção por autenticação/permissão
     │   ├── services/                # clientes HTTP da API
+    │   ├── styles/                  # design system: tokens, base, componentes, layout e páginas (CSS)
     │   ├── types/ · utils/ · hooks/
     │   └── main.tsx
     ├── vercel.json                  # rewrites usados na hospedagem na Vercel

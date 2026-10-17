@@ -83,7 +83,7 @@ export function ModuleList({ module }: { module: Module }) {
   const Icon = module === 'quotes' ? FileText : module === 'payments' ? BadgeDollarSign : ShieldCheck;
 
   return <div className="resource-page">
-    <div className="page-intro financial-page-intro"><div><p className="eyebrow">{page.eyebrow}</p><h2>{page.title}</h2><p className="muted">{page.description}</p></div><Link className="button button-secondary button-small" to="/service-orders"><ArrowRight size={15} /> Ver ordens de serviço</Link></div>
+    <div className="page-intro financial-page-intro"><div><p className="eyebrow">{page.eyebrow}</p><h1>{page.title}</h1><p className="muted">{page.description}</p></div><Link className="button button-secondary button-small" to="/service-orders"><ArrowRight size={15} /> Ver ordens de serviço</Link></div>
     <div className={`financial-metrics financial-metrics-${module}`}>
       <Card className="financial-metric"><div className="metric-icon metric-icon-blue"><Icon size={18} /></div><div><p>{first.label}</p><strong>{formatMetric(first)}</strong></div></Card>
       <Card className="financial-metric"><div className="metric-icon metric-icon-amber"><Clock3 size={18} /></div><div><p>{second.label}</p><strong>{formatMetric(second)}</strong></div></Card>

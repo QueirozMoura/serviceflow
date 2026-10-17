@@ -54,7 +54,7 @@ export function Profile() {
   };
 
   return <div className="form-page">
-    <div className="page-intro compact-intro"><div><p className="eyebrow">Conta</p><h2>Meu perfil</h2><p className="muted">Consulte seus dados e mantenha seu nome atualizado.</p></div></div>
+    <div className="page-intro compact-intro"><div><p className="eyebrow">Conta</p><h1>Meu perfil</h1><p className="muted">Consulte seus dados e mantenha seu nome atualizado.</p></div></div>
     <Card className="form-card"><form onSubmit={(event) => void submit(event)} noValidate>
       <div className="form-grid">
         <label className="full-field">Nome <span>*</span><input value={name} onChange={(event) => { setDraft(event.target.value); setError(''); }} maxLength={NAME_MAX + 20} autoComplete="name" /></label>

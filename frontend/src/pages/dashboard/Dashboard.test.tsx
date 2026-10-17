@@ -5,6 +5,8 @@ import type { DashboardResponse } from '../../types/dashboard';
 
 const apiMock = vi.hoisted(() => ({ get: vi.fn() }));
 vi.mock('../../services/api', () => ({ api: apiMock }));
+const authMock = vi.hoisted(() => ({ denied: new Set<string>() }));
+vi.mock('../../contexts/AuthContext', () => ({ useAuth: () => ({ user: { name: 'Marina Costa' }, can: (permission: string) => !authMock.denied.has(permission) }) }));
 
 import { Dashboard } from './Dashboard';
 
@@ -23,7 +25,7 @@ const renderPage = () => render(<MemoryRouter><Dashboard /></MemoryRouter>);
 const normalize = (text: string | null) => (text ?? '').replace(/\u00a0/g, ' ');
 
 describe('Dashboard', () => {
-  beforeEach(() => { vi.clearAllMocks(); apiMock.get.mockResolvedValue(data); });
+  beforeEach(() => { vi.clearAllMocks(); authMock.denied.clear(); apiMock.get.mockResolvedValue(data); });
 
   it('shows loading and then the indicators computed from the API data', async () => {
     renderPage();
@@ -95,5 +97,47 @@ describe('Dashboard', () => {
     expect(screen.queryByText('Total recebido', { selector: '.metric-card p' })).toBeNull();
     expect(screen.getByText('Orçamentos aprovados', { selector: '.metric-card p' })).toBeTruthy();
     expect(screen.queryByText('Não informado')).toBeNull();
+  });
+
+  it('greets the user, charts the real status counts and the financial totals, and offers a new order', async () => {
+    const { container } = renderPage();
+    await screen.findByText('Total de ordens');
+    expect(screen.getByText(/Olá, Marina\./)).toBeTruthy();
+    expect(screen.getByRole('link', { name: /Nova OS/ }).getAttribute('href')).toBe('/service-orders/new');
+    const legend = screen.getByText('Recebida', { selector: '.legend-label' }).closest('li') as HTMLElement;
+    expect(legend.textContent).toBe('Recebida214%');
+    expect(container.querySelectorAll('.segment').length).toBeGreaterThan(0);
+    expect(screen.getByRole('list', { name: 'Valores acumulados' }).textContent).toContain('R$ 800,25'.replace(' ', '\u00a0'));
+    expect(container.querySelector('.onboarding')).toBeNull();
+  });
+
+  it('hides the new-order shortcut from a role that cannot create orders', async () => {
+    authMock.denied.add('serviceOrders:write');
+    renderPage();
+    await screen.findByText('Total de ordens');
+    expect(screen.queryByRole('link', { name: /Nova OS/ })).toBeNull();
+  });
+
+  it('guides an empty organization through its first steps with real links', async () => {
+    apiMock.get.mockResolvedValue({ ...data, serviceOrders: { total: 0, byStatus: {} }, recentServiceOrders: [] });
+    renderPage();
+    await screen.findByText('Total de ordens');
+    expect(screen.getByRole('link', { name: /Cadastrar um cliente/ }).getAttribute('href')).toBe('/customers/new');
+    expect(screen.getByRole('link', { name: /Cadastrar um equipamento/ }).getAttribute('href')).toBe('/equipment/new');
+    expect(screen.getByRole('link', { name: /Abrir uma ordem de serviço/ }).getAttribute('href')).toBe('/service-orders/new');
+    expect(screen.getByText('Sem registros para exibir.')).toBeTruthy();
+  });
+
+  it('keeps the data on screen and shows a refreshing state while updating', async () => {
+    renderPage();
+    await screen.findByText('Total de ordens');
+    let release!: (value: DashboardResponse) => void;
+    apiMock.get.mockReturnValueOnce(new Promise<DashboardResponse>((resolve) => { release = resolve; }));
+    fireEvent.click(screen.getByRole('button', { name: 'Atualizar' }));
+    expect(await screen.findByRole('button', { name: 'Atualizando...' })).toBeTruthy();
+    expect((screen.getByRole('button', { name: 'Atualizando...' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText('Total de ordens')).toBeTruthy();
+    release(data);
+    expect(await screen.findByRole('button', { name: 'Atualizar' })).toBeTruthy();
   });
 });

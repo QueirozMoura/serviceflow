@@ -81,7 +81,7 @@ export function CommunicationCard({ serviceOrderId, canGenerate, canRead, canWri
   };
 
   return <Card className="full-detail-card">
-    <div className="section-heading"><h3>Comunicação</h3><MessageSquare size={18} /></div>
+    <div className="section-heading"><h2>Comunicação</h2><MessageSquare size={18} /></div>
     {canGenerate ? <div className="message-controls">
       <select value={messageType} onChange={(event) => setMessageType(event.target.value as MessageResponse['type'])} aria-label="Modelo de mensagem">{messageTypes.map((entry) => <option key={entry.value} value={entry.value}>{entry.label}</option>)}</select>
       <Button className="button-primary" onClick={() => void generate()} disabled={generating}><Send size={16} />{generating ? 'Gerando...' : 'Gerar mensagem'}</Button>
@@ -99,7 +99,7 @@ export function CommunicationCard({ serviceOrderId, canGenerate, canRead, canWri
       {recordError_ ? <p className="form-error" role="alert">{recordError_}</p> : null}
     </div> : null}
     {canRead ? <div className="message-history">
-      <h4>Histórico de comunicação</h4>
+      <h3>Histórico de comunicação</h3>
       {!sendingAvailable && historyState === 'ready' ? <p className="muted message-notice">Envio automático ainda não disponível: as mensagens abaixo são rascunhos registrados no sistema e não foram enviadas por ele.</p> : null}
       {historyState === 'loading' ? <Loading message="Carregando histórico..." /> : historyState === 'error' ? <ErrorState message="Não foi possível carregar o histórico de comunicação." actionLabel="Tentar novamente" onAction={() => void loadHistory()} /> : history.length === 0 ? <p className="muted">Nenhuma mensagem registrada para esta OS.</p> : <ul className="message-history-list" aria-label="Histórico de comunicação">{history.map((item) => <li className="message-history-item" key={item.id}>
         <div className="message-history-meta"><span className="badge badge-draft">Rascunho · não enviada pelo sistema</span><strong>{channelLabel(item.channel)} · {typeLabel(item.type)}</strong><time dateTime={item.createdAt}>{dateTime(item.createdAt)}</time></div>

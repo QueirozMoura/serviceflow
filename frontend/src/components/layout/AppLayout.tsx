@@ -17,9 +17,9 @@ export function AppLayout() {
   };
 
   return (
-    <div className="app-shell">
+    <div className="app-shell"><a className="skip-link" href="#conteudo">Pular para o conteúdo</a>
       <Sidebar user={user} isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} onLogout={() => void handleLogout()} />
-      <div className="app-main"><Header user={user} onMenuClick={() => setSidebarOpen(true)} /><main className="page-content"><Outlet /></main></div>
+      <div className="app-main"><Header user={user} onMenuClick={() => setSidebarOpen(true)} onLogout={() => void handleLogout()} /><main className="page-content" id="conteudo" tabIndex={-1}><Outlet /></main></div>
     </div>
   );
 }

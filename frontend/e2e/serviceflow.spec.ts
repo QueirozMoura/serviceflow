@@ -1,6 +1,9 @@
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
 import { setUserRole } from './database';
 
+/** Item da navegação lateral (os cartões do dashboard também são links com nomes parecidos). */
+const sidebar = (page: Page) => page.getByRole('navigation', { name: 'Navegação principal' });
+
 function createAccount() {
   const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   return {
@@ -39,7 +42,7 @@ test('navigates a protected session through the main operational flow', async ({
   await login(page, request);
   await expect(page.getByRole('heading', { name: 'Bom trabalho, vamos começar.' })).toBeVisible();
 
-  await page.getByRole('link', { name: 'Clientes' }).click();
+  await sidebar(page).getByRole('link', { name: 'Clientes' }).click();
   await expect(page).toHaveURL(/\/customers$/);
   await page.getByRole('link', { name: 'Novo cliente' }).first().click();
   await page.getByLabel('Nome *').fill('Cliente E2E');
@@ -59,7 +62,7 @@ test('navigates a protected session through the main operational flow', async ({
   await expect(page.getByRole('heading', { name: 'Dell Latitude E2E' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Cliente E2E', exact: true })).toBeVisible();
 
-  await page.getByRole('link', { name: 'Ordens de serviço' }).click();
+  await sidebar(page).getByRole('link', { name: 'Ordens de serviço' }).click();
   await page.getByRole('link', { name: 'Nova OS' }).click();
   await expect(page).toHaveURL(/\/service-orders\/new$/);
   const customerSelect = page.getByLabel('Cliente *');
@@ -152,7 +155,7 @@ test('navigates a protected session through the main operational flow', async ({
 
 test('shows protected navigation and required-field validation without sending invalid data', async ({ page, request }) => {
   await login(page, request);
-  await page.getByRole('link', { name: 'Clientes' }).click();
+  await sidebar(page).getByRole('link', { name: 'Clientes' }).click();
   // A lista vazia mostra um segundo link "Novo cliente"; .first() evita ambiguidade conforme o momento do carregamento.
   await page.getByRole('link', { name: 'Novo cliente' }).first().click();
   await page.getByRole('button', { name: 'Salvar cliente' }).click();
@@ -206,7 +209,7 @@ test('registers and edits a diagnosis and respects the server rule when deleting
 
 test('shows the profile, renames the user everywhere and persists after reload', async ({ page, request }) => {
   const account = await login(page, request);
-  await page.getByRole('link', { name: 'Meu perfil' }).click();
+  await sidebar(page).getByRole('link', { name: 'Meu perfil' }).click();
   await expect(page).toHaveURL(/\/profile$/);
   await expect(page.getByLabel(/^Nome/)).toHaveValue('E2E Owner');
   await expect(page.getByLabel('E-mail')).toHaveValue(account.email);
@@ -221,7 +224,7 @@ test('shows the profile, renames the user everywhere and persists after reload',
   await page.getByRole('button', { name: 'Salvar perfil' }).click();
   await expect(page.getByText('Perfil atualizado.')).toBeVisible();
   await expect(page.locator('.sidebar-footer').getByText('Maria E2E')).toBeVisible();
-  await expect(page.locator('.header-user').getByText('Maria E2E')).toBeVisible();
+  await expect(page.locator('.user-menu').getByText('Maria E2E')).toBeVisible();
 
   // O backend recusa campos protegidos mesmo que o cliente os envie.
   const protectedAttempt = await page.request.patch('/api/auth/me', { data: { name: 'Hacker', role: 'ADMIN', email: 'x@example.com' } });
@@ -244,8 +247,8 @@ test('applies role permissions: a technician is restricted and an admin promoted
 
   // Menu e rota: sem pagamentos.
   await page.goto('/dashboard');
-  await expect(page.getByRole('link', { name: 'Clientes' })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Pagamentos' })).toHaveCount(0);
+  await expect(sidebar(page).getByRole('link', { name: 'Clientes' })).toBeVisible();
+  await expect(sidebar(page).getByRole('link', { name: 'Pagamentos' })).toHaveCount(0);
   await expect(page.getByText('Total recebido')).toHaveCount(0);
   await page.goto('/payments');
   await expect(page.getByText('Você não tem permissão para acessar esta página.')).toBeVisible();
@@ -339,8 +342,8 @@ test('applies role permissions: a technician is restricted and an admin promoted
   // Promovido a ADMIN no banco: a mesma sessao passa a ter pagamentos e exclusao apos recarregar.
   setUserRole(account.email, 'ADMIN');
   await page.goto('/dashboard');
-  await expect(page.getByRole('link', { name: 'Pagamentos' })).toBeVisible();
-  await page.getByRole('link', { name: 'Pagamentos' }).click();
+  await expect(sidebar(page).getByRole('link', { name: 'Pagamentos' })).toBeVisible();
+  await sidebar(page).getByRole('link', { name: 'Pagamentos' }).click();
   await expect(page.getByRole('heading', { name: 'Pagamentos' })).toBeVisible();
   await page.goto(`/service-orders/${serviceOrder.id}`);
   await expect(page.getByRole('heading', { name: 'Pagamentos' })).toBeVisible();
@@ -424,7 +427,7 @@ test('signs up by email, invites a technician through a link, and the invite wor
   await expect(page).toHaveURL(/\/dashboard$/);
 
   // O OWNER gera o convite; o link aparece uma unica vez (nenhum email e enviado).
-  await page.getByRole('link', { name: 'Equipe' }).click();
+  await sidebar(page).getByRole('link', { name: 'Equipe' }).click();
   await expect(page).toHaveURL(/\/team$/);
   const invitee = `tecnico-${Date.now()}@example.com`;
   await page.getByLabel('Email do convidado').fill(invitee);
@@ -444,8 +447,8 @@ test('signs up by email, invites a technician through a link, and the invite wor
   await guestPage.getByLabel('Crie uma senha').fill('StrongPass1');
   await guestPage.getByRole('button', { name: 'Aceitar convite' }).click();
   await expect(guestPage).toHaveURL(/\/dashboard$/);
-  await expect(guestPage.getByRole('link', { name: 'Clientes' })).toBeVisible();
-  await expect(guestPage.getByRole('link', { name: 'Equipe' })).toHaveCount(0);
+  await expect(sidebar(guestPage).getByRole('link', { name: 'Clientes' })).toBeVisible();
+  await expect(sidebar(guestPage).getByRole('link', { name: 'Equipe' })).toHaveCount(0);
   await guestPage.goto('/team');
   await expect(guestPage.getByText('Você não tem permissão para acessar esta página.')).toBeVisible();
   await guest.close();
@@ -516,4 +519,38 @@ test('recovers a forgotten password by e-mail link: old password and sessions st
   await againPage.goto(link);
   await expect(againPage.getByText(/não é válido ou expirou/)).toBeVisible();
   await again.close();
+});
+
+test('navigates with the account menu, the breadcrumb and the mobile drawer, with no horizontal scroll', async ({ page, request }) => {
+  await login(page, request);
+  const horizontalOverflow = () => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+
+  // Desktop: migalha acompanha a rota; menu da conta abre, fecha com Escape e leva ao perfil.
+  await sidebar(page).getByRole('link', { name: 'Ordens de serviço' }).click();
+  await expect(page.getByRole('navigation', { name: 'Você está em' }).locator('[aria-current="page"]')).toHaveText('Ordens de serviço');
+  await expect(page.getByRole('heading', { level: 1, name: 'Ordens de serviço' })).toBeVisible();
+  const trigger = page.getByRole('button', { name: /Menu da conta de/ });
+  await trigger.click();
+  await expect(page.getByRole('button', { name: 'Encerrar sessão' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('button', { name: 'Encerrar sessão' })).toHaveCount(0);
+  await trigger.click();
+  await page.locator('#user-menu-panel').getByRole('link', { name: 'Meu perfil' }).click();
+  await expect(page).toHaveURL(/\/profile$/);
+  expect(await horizontalOverflow()).toBeLessThanOrEqual(0);
+
+  // Celular: a barra lateral vira gaveta; escolher um item a fecha.
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/dashboard');
+  await expect(page.getByRole('button', { name: 'Abrir menu' })).toBeVisible();
+  await page.getByRole('button', { name: 'Abrir menu' }).click();
+  await expect(sidebar(page).getByRole('link', { name: 'Clientes' })).toBeVisible();
+  await sidebar(page).getByRole('link', { name: 'Clientes' }).click();
+  await expect(page).toHaveURL(/\/customers$/);
+  await expect(page.locator('.sidebar-open')).toHaveCount(0);
+  for (const path of ['/dashboard', '/customers', '/service-orders', '/quotes', '/team']) {
+    await page.goto(path);
+    await expect(page.locator('main h1')).toBeVisible();
+    expect(await horizontalOverflow(), path).toBeLessThanOrEqual(0);
+  }
 });
