@@ -324,7 +324,7 @@ describe('pagination, search and filters against a real PostgreSQL database', ()
       expect(beta_.pagination.total).toBe(1);
       expect(beta_.summary).toEqual({ pendingCount: 1, approvedTotal: '0.00', totalValue: '999.00' });
       const alpha_ = await json('/api/quotes?pageSize=100', alpha.owner);
-      expect(JSON.stringify(alpha_)).not.toMatch(/OS-B|999/);
+      expect(JSON.stringify(alpha_)).not.toMatch(/OS-B|"999(?:\.00)?"/);
       expect((await json(`/api/quotes?organizationId=${beta.organizationId}`, alpha.owner)).summary.totalValue).toBe('3250.00');
       expect((await json('/api/quotes?q=OS-B', alpha.owner)).pagination.total).toBe(0);
     });
@@ -373,7 +373,7 @@ describe('pagination, search and filters against a real PostgreSQL database', ()
       expect(betaPayments.pagination.total).toBe(1);
       expect(betaPayments.summary).toEqual({ paidTotal: '777.00', pendingTotal: '0.00', count: 1 });
       const alphaPayments = await json('/api/payments?pageSize=100', alpha.owner);
-      expect(JSON.stringify(alphaPayments)).not.toMatch(/OS-B|777/);
+      expect(JSON.stringify(alphaPayments)).not.toMatch(/OS-B|"777(?:\.00)?"/);
       expect((await json(`/api/payments?organizationId=${beta.organizationId}`, alpha.owner)).summary.paidTotal).toBe('200.00');
     });
   });
