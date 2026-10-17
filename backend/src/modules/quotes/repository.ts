@@ -1,4 +1,5 @@
 import { Prisma, QuoteStatus, type PrismaClient, type Quote, type ServiceItem } from '@prisma/client';
+import { guardDueValueChange, lockQuoteRow, lockServiceOrderRow } from '../shared/due-value.js';
 import { isForeignKeyRestriction } from '../service-orders/repository.js';
 import type { CreateQuoteInput, CreateServiceItemInput, UpdateQuoteInput, UpdateServiceItemInput } from './schemas.js';
 
@@ -30,16 +31,11 @@ function calculateTotal(items: Array<{ quantity: Prisma.Decimal; unitPrice: Pris
 
 type Transaction = Prisma.TransactionClient;
 
-// Serializa as mutacoes de itens de um mesmo orcamento: o lock de linha fica retido ate o fim da transacao, entao
-// cada uma le os itens ja confirmados pelas anteriores e grava um total que reflete a soma real. Um unico lock por
-// transacao (sempre na mesma linha) nao gera deadlock. O escopo da organizacao vem da OS dona do orcamento.
+// Serializa as mutacoes de itens de um mesmo orcamento seguindo a ordem global de locks (OS e depois orcamento, ver
+// shared/due-value): cada uma le os itens ja confirmados pelas anteriores e grava um total que reflete a soma real.
 async function lockQuote(transaction: Transaction, organizationId: string, serviceOrderId: string): Promise<string | null> {
-  const rows = await transaction.$queryRaw<Array<{ id: string }>>(Prisma.sql`
-    SELECT q."id" FROM "Quote" q
-    JOIN "ServiceOrder" so ON so."id" = q."serviceOrderId"
-    WHERE so."id" = ${serviceOrderId} AND so."organizationId" = ${organizationId}
-    FOR UPDATE OF q`);
-  return rows[0]?.id ?? null;
+  if (!(await lockServiceOrderRow(transaction, organizationId, serviceOrderId))) return null;
+  return lockQuoteRow(transaction, organizationId, serviceOrderId);
 }
 
 async function refreshTotal(transaction: Transaction, quoteId: string): Promise<QuoteRecord> {
@@ -75,9 +71,17 @@ export class PrismaQuoteRepository implements QuoteRepository {
   }
 
   async updateStatus(organizationId: string, serviceOrderId: string, status: QuoteStatus): Promise<QuoteRecord | null> {
-    const quote = await this.findByServiceOrder(organizationId, serviceOrderId);
-    if (!quote) return null;
-    return this.db.quote.update({ where: { id: quote.id }, data: { status }, include: quoteInclude });
+    return this.db.$transaction(async (transaction) => {
+      const quoteId = await lockQuote(transaction, organizationId, serviceOrderId);
+      if (!quoteId) return null;
+      // Relido sob o lock: duas decisoes simultaneas (ex.: aprovar e rejeitar) nao podem ambas vencer.
+      const current = await transaction.quote.findUniqueOrThrow({ where: { id: quoteId }, select: { status: true } });
+      if (!QUOTE_TRANSITIONS[current.status].includes(status)) throw new QuoteTransitionError();
+      return guardDueValueChange(transaction, organizationId, serviceOrderId, async () => {
+        await transaction.quote.update({ where: { id: quoteId }, data: { status } });
+        return transaction.quote.findUniqueOrThrow({ where: { id: quoteId }, include: quoteInclude });
+      });
+    });
   }
 
   async delete(organizationId: string, serviceOrderId: string): Promise<boolean> {
@@ -96,8 +100,10 @@ export class PrismaQuoteRepository implements QuoteRepository {
     return this.db.$transaction(async (transaction) => {
       const quoteId = await lockQuote(transaction, organizationId, serviceOrderId);
       if (!quoteId) throw new QuoteNotFoundError();
-      await transaction.serviceItem.create({ data: { quoteId, ...input } });
-      return refreshTotal(transaction, quoteId);
+      return guardDueValueChange(transaction, organizationId, serviceOrderId, async () => {
+        await transaction.serviceItem.create({ data: { quoteId, ...input } });
+        return refreshTotal(transaction, quoteId);
+      });
     });
   }
 
@@ -107,8 +113,10 @@ export class PrismaQuoteRepository implements QuoteRepository {
       if (!quoteId) return null;
       const item = await transaction.serviceItem.findFirst({ where: { id: itemId, quoteId } });
       if (!item) return null;
-      await transaction.serviceItem.update({ where: { id: itemId }, data: input });
-      return refreshTotal(transaction, quoteId);
+      return guardDueValueChange(transaction, organizationId, serviceOrderId, async () => {
+        await transaction.serviceItem.update({ where: { id: itemId }, data: input });
+        return refreshTotal(transaction, quoteId);
+      });
     });
   }
 
@@ -118,12 +126,17 @@ export class PrismaQuoteRepository implements QuoteRepository {
       if (!quoteId) return null;
       const item = await transaction.serviceItem.findFirst({ where: { id: itemId, quoteId } });
       if (!item) return null;
-      await transaction.serviceItem.delete({ where: { id: itemId } });
-      return refreshTotal(transaction, quoteId);
+      return guardDueValueChange(transaction, organizationId, serviceOrderId, async () => {
+        await transaction.serviceItem.delete({ where: { id: itemId } });
+        return refreshTotal(transaction, quoteId);
+      });
     });
   }
 }
 
+/** Unica fonte das transicoes de status do orcamento: so um orcamento PENDING pode ser decidido. */
+export const QUOTE_TRANSITIONS: Record<QuoteStatus, QuoteStatus[]> = { PENDING: [QuoteStatus.APPROVED, QuoteStatus.REJECTED, QuoteStatus.EXPIRED], APPROVED: [], REJECTED: [], EXPIRED: [] };
+export class QuoteTransitionError extends Error {}
 export class QuoteAlreadyExistsError extends Error {}
 export class QuoteNotFoundError extends Error {}
 export class QuoteInUseError extends Error {}

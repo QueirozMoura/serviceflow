@@ -1,4 +1,5 @@
-import { PaymentStatus, Prisma, QuoteStatus, type Payment, type PrismaClient } from '@prisma/client';
+import { PaymentStatus, Prisma, type Payment, type PrismaClient } from '@prisma/client';
+import { lockServiceOrderRow, readDueValue, reservedAmount } from '../shared/due-value.js';
 import type { CreatePaymentInput, UpdatePaymentInput } from './schemas.js';
 
 export type PaymentRecord = Pick<Payment, 'id' | 'organizationId' | 'serviceOrderId' | 'amount' | 'status' | 'method' | 'createdAt' | 'updatedAt'> & {
@@ -25,44 +26,16 @@ export const PAYMENT_TRANSITIONS: Record<PaymentStatus, PaymentStatus[]> = { PEN
 
 type Transaction = Prisma.TransactionClient;
 
-const zero = new Prisma.Decimal(0);
-
-// Pagamentos que ocupam saldo: PENDING (registrado, ainda nao confirmado) e PAID. FAILED, CANCELLED e REFUNDED nao contam.
-const COUNTED_STATUSES = [PaymentStatus.PENDING, PaymentStatus.PAID];
-
-// Valor devido: o valor final da OS quando definido (> 0); senao o total do orcamento unico da OS (> 0) desde que ele
-// nao esteja REJECTED/EXPIRED. O valor estimado nunca substitui o final. Sem nenhum dos dois o valor devido e
-// indeterminado e o pagamento e recusado (null).
-const INVALID_QUOTE_STATUSES: string[] = [QuoteStatus.REJECTED, QuoteStatus.EXPIRED];
-
-function referenceValue(finalValue: Prisma.Decimal | null, quoteTotal: Prisma.Decimal | null, quoteStatus: string | null): Prisma.Decimal | null {
-  if (finalValue !== null && new Prisma.Decimal(finalValue).gt(zero)) return new Prisma.Decimal(finalValue);
-  if (quoteTotal !== null && quoteStatus !== null && !INVALID_QUOTE_STATUSES.includes(quoteStatus) && new Prisma.Decimal(quoteTotal).gt(zero)) return new Prisma.Decimal(quoteTotal);
-  return null;
-}
-
-// Trava a linha da OS (escopada pela organizacao) ate o fim da transacao. TODO fluxo que cria, edita, remove ou muda o
-// status de um pagamento passa por aqui, entao saldo, idempotencia e transicoes de uma mesma OS sao serializados.
-// E o unico lock tomado por esses fluxos (os itens de orcamento travam apenas a linha do orcamento), logo nao ha
-// ordem de locks conflitante nem deadlock. Devolve undefined se a OS nao existe na organizacao.
+// Trava a linha da OS e le o valor devido vigente (null = indeterminado). Todo fluxo que cria, edita, remove ou muda o
+// status de um pagamento passa por aqui; os caminhos que alteram o valor devido usam o mesmo lock (ver shared/due-value).
 async function lockServiceOrder(transaction: Transaction, organizationId: string, serviceOrderId: string): Promise<{ reference: Prisma.Decimal | null } | undefined> {
-  const rows = await transaction.$queryRaw<Array<{ finalValue: Prisma.Decimal | null; quoteTotal: Prisma.Decimal | null; quoteStatus: string | null }>>(Prisma.sql`
-    SELECT so."finalValue" AS "finalValue", q."total" AS "quoteTotal", q."status"::text AS "quoteStatus" FROM "ServiceOrder" so
-    LEFT JOIN "Quote" q ON q."serviceOrderId" = so."id"
-    WHERE so."id" = ${serviceOrderId} AND so."organizationId" = ${organizationId}
-    FOR UPDATE OF so`);
-  const row = rows[0];
-  if (!row) return undefined;
-  return { reference: referenceValue(row.finalValue, row.quoteTotal, row.quoteStatus) };
+  if (!(await lockServiceOrderRow(transaction, organizationId, serviceOrderId))) return undefined;
+  return { reference: await readDueValue(transaction, organizationId, serviceOrderId) };
 }
 
 async function assertWithinBalance(transaction: Transaction, organizationId: string, serviceOrderId: string, reference: Prisma.Decimal | null, amount: Prisma.Decimal, excludePaymentId?: string): Promise<void> {
   if (reference === null) throw new PaymentDueAmountUnknownError();
-  const committed = await transaction.payment.aggregate({
-    where: { organizationId, serviceOrderId, status: { in: COUNTED_STATUSES }, ...(excludePaymentId ? { id: { not: excludePaymentId } } : {}) },
-    _sum: { amount: true },
-  });
-  const outstanding = reference.sub(committed._sum.amount ?? zero);
+  const outstanding = reference.sub(await reservedAmount(transaction, organizationId, serviceOrderId, excludePaymentId));
   if (amount.gt(outstanding)) throw new PaymentExceedsBalanceError();
 }
 

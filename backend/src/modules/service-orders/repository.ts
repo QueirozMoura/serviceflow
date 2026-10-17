@@ -1,6 +1,7 @@
 import { Prisma, ServiceOrderStatus, type PrismaClient, type ServiceOrder } from '@prisma/client';
 import { randomBytes } from 'node:crypto';
 import { containsInsensitive, newestFirst, skipTake, type Page } from '../shared/pagination.js';
+import { guardDueValueChange, lockServiceOrderRow } from '../shared/due-value.js';
 import type { CreateServiceOrderInput, ListServiceOrdersQuery, UpdateServiceOrderInput } from './schemas.js';
 
 export type ServiceOrderRecord = Pick<
@@ -100,9 +101,13 @@ export class PrismaServiceOrderRepository implements ServiceOrderRepository {
   }
 
   async update(organizationId: string, id: string, input: UpdateServiceOrderInput): Promise<ServiceOrderRecord | null> {
-    const result = await this.db.serviceOrder.updateMany({ where: { id, organizationId }, data: input });
-    if (result.count === 0) return null;
-    return this.findById(organizationId, id);
+    // Alterar finalValue muda o valor devido: segue a mesma ordem de locks dos pagamentos e dos itens do orcamento.
+    return this.db.$transaction(async (transaction) => {
+      if (!(await lockServiceOrderRow(transaction, organizationId, id))) return null;
+      const apply = () => transaction.serviceOrder.updateMany({ where: { id, organizationId }, data: input });
+      if ('finalValue' in input) await guardDueValueChange(transaction, organizationId, id, apply); else await apply();
+      return transaction.serviceOrder.findFirst({ where: { id, organizationId }, include: orderInclude });
+    });
   }
 
   async updateStatus(organizationId: string, id: string, changedByUserId: string, status: ServiceOrderStatus): Promise<ServiceOrderRecord | null> {

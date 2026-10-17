@@ -12,6 +12,7 @@ process.env.NODE_ENV = 'test';
 process.env.DATABASE_URL = temporary.url;
 process.env.RATE_LIMIT_MAX = '100000';
 
+const { PrismaServiceOrderRepository } = await import('../../src/modules/service-orders/repository.js');
 const { PrismaPaymentRepository } = await import('../../src/modules/payments/repository.js');
 const { buildApp } = await import('../../src/app.js');
 const { PrismaAuthRepository } = await import('../../src/modules/auth/repository.js');
@@ -52,10 +53,12 @@ describe('financial integrity against a real PostgreSQL database', () => {
     const c = await customer(org); const e = await equipment(org, c.id);
     return db.serviceOrder.create({ data: { organizationId: org.organizationId, customerId: c.id, equipmentId: e.id, orderNumber: `OS-${++counter}-${org.organizationId.slice(0, 6)}`, status: 'RECEIVED', problemDescription: 'x', receivedAt: new Date(), ...(finalValue ? { finalValue } : {}) } });
   }
-  async function quoteWithTotal(org: Org, serviceOrderId: string, unitPrice: string) {
+  /** Cria o orcamento com um item e, por padrao, o aprova: so orcamento APPROVED vale como valor devido. */
+  async function quoteWithTotal(org: Org, serviceOrderId: string, unitPrice: string, approve = true) {
     expect((await call('POST', `/api/service-orders/${serviceOrderId}/quote`, org, {})).statusCode).toBe(201);
     const response = await call('POST', `/api/service-orders/${serviceOrderId}/quote/items`, org, { description: 'Servico', quantity: '1', unitPrice, type: 'LABOR' });
     expect(response.statusCode).toBe(201);
+    if (approve) expect((await call('PATCH', `/api/service-orders/${serviceOrderId}/quote/status`, org, { status: 'APPROVED' })).statusCode).toBe(200);
   }
   const call = (method: 'GET' | 'POST' | 'PATCH' | 'DELETE', url: string, org: Org, payload?: object, headers: Record<string, string> = {}) =>
     app.inject({ method, url, headers: { cookie: org.cookie, ...headers }, ...(payload ? { payload } : {}) });
@@ -269,10 +272,11 @@ describe('financial integrity against a real PostgreSQL database', () => {
         await db.serviceOrder.update({ where: { id: estimatedOnly.id }, data: { estimatedValue: '500.00' } });
         const emptyQuote = await serviceOrder(org); await call('POST', `/api/service-orders/${emptyQuote.id}/quote`, org, {});
         const zeroFinal = await serviceOrder(org, '0.00');
+        const pendingQuote = await serviceOrder(org); await quoteWithTotal(org, pendingQuote.id, '100.00', false);
         const rejected = await serviceOrder(org); await quoteWithTotal(org, rejected.id, '100.00'); await db.quote.update({ where: { serviceOrderId: rejected.id }, data: { status: 'REJECTED' } });
         const expired = await serviceOrder(org); await quoteWithTotal(org, expired.id, '100.00'); await db.quote.update({ where: { serviceOrderId: expired.id }, data: { status: 'EXPIRED' } });
 
-        for (const order of [bare, estimatedOnly, emptyQuote, zeroFinal, rejected, expired]) {
+        for (const order of [bare, estimatedOnly, emptyQuote, zeroFinal, pendingQuote, rejected, expired]) {
           const response = await pay(org, order.id, '1.00');
           expect(response.statusCode).toBe(409);
           expect(response.json().message).toMatch(/amount due is not defined/);
@@ -280,15 +284,21 @@ describe('financial integrity against a real PostgreSQL database', () => {
         }
       });
 
-      it('accepts payments against a pending or approved quote, with the final value taking precedence', async () => {
+      it('uses the final value, else an APPROVED quote total; a PENDING quote never counts', async () => {
         const org = await organization('BalQuoteStates');
-        const pending = await serviceOrder(org); await quoteWithTotal(org, pending.id, '100.00');
-        const approved = await serviceOrder(org); await quoteWithTotal(org, approved.id, '100.00'); await db.quote.update({ where: { serviceOrderId: approved.id }, data: { status: 'APPROVED' } });
-        const rejectedButFinal = await serviceOrder(org, '70.00'); await quoteWithTotal(org, rejectedButFinal.id, '100.00'); await db.quote.update({ where: { serviceOrderId: rejectedButFinal.id }, data: { status: 'REJECTED' } });
-        expect((await pay(org, pending.id, '100.00')).statusCode).toBe(201);
+        const pending = await serviceOrder(org); await quoteWithTotal(org, pending.id, '100.00', false);
+        const approved = await serviceOrder(org); await quoteWithTotal(org, approved.id, '100.00');
+        const finalOverApproved = await serviceOrder(org, '70.00'); await quoteWithTotal(org, finalOverApproved.id, '100.00');
+        const finalOverRejected = await serviceOrder(org, '70.00'); await quoteWithTotal(org, finalOverRejected.id, '100.00'); await db.quote.update({ where: { serviceOrderId: finalOverRejected.id }, data: { status: 'REJECTED' } });
+
+        expect((await pay(org, pending.id, '1.00')).statusCode).toBe(409);
+        expect(await countPayments(pending.id)).toBe(0);
+        expect((await pay(org, approved.id, '100.01')).statusCode).toBe(409);
         expect((await pay(org, approved.id, '100.00')).statusCode).toBe(201);
-        expect((await pay(org, rejectedButFinal.id, '70.01')).statusCode).toBe(409);
-        expect((await pay(org, rejectedButFinal.id, '70.00')).statusCode).toBe(201);
+        for (const order of [finalOverApproved, finalOverRejected]) {
+          expect((await pay(org, order.id, '70.01')).statusCode).toBe(409);
+          expect((await pay(org, order.id, '70.00')).statusCode).toBe(201);
+        }
       });
 
       it('rejects invalid amounts and amounts that would overflow the column', async () => {
@@ -474,6 +484,162 @@ describe('financial integrity against a real PostgreSQL database', () => {
         // E o mesmo conteudo, depois, ainda pode ser registrado normalmente.
         expect((await pay(org, order.id, '10.00', { 'idempotency-key': 'op-atomic-0001' })).statusCode).toBe(201);
       });
+    });
+  });
+
+  describe('changes to the amount due', () => {
+    const pay = (org: Org, serviceOrderId: string, amount: string) => call('POST', `/api/service-orders/${serviceOrderId}/payments`, org, { amount, method: 'PIX' }, { 'idempotency-key': randomUUID() });
+    const setFinal = (org: Org, serviceOrderId: string, finalValue: string | null) => call('PATCH', `/api/service-orders/${serviceOrderId}`, org, { finalValue });
+    const decide = (org: Org, serviceOrderId: string, status: string) => call('PATCH', `/api/service-orders/${serviceOrderId}/quote/status`, org, { status });
+    const reservedSum = async (serviceOrderId: string) => (await db.payment.aggregate({ where: { serviceOrderId, status: { in: ['PENDING', 'PAID'] } }, _sum: { amount: true } }))._sum.amount ?? new Prisma.Decimal(0);
+    const dueRow = async (serviceOrderId: string) => db.serviceOrder.findUniqueOrThrow({ where: { id: serviceOrderId }, include: { quote: { include: { items: true } } } });
+
+    it('allows lowering the final value while the reserved payments still fit, and refuses going below them', async () => {
+      const org = await organization('DueFinal'); const order = await serviceOrder(org, '100.00');
+      await pay(org, order.id, '40.00');
+
+      expect((await setFinal(org, order.id, '40.00')).statusCode).toBe(200);
+      const refused = await setFinal(org, order.id, '39.99');
+      expect(refused.statusCode).toBe(409);
+      expect(refused.json().message).toBe('The change would leave active payments above the amount due');
+      expect((await dueRow(order.id)).finalValue?.toString()).toBe('40');
+      // Aumentar, e mudar campos que nao tocam o valor, continuam livres.
+      expect((await setFinal(org, order.id, '200.00')).statusCode).toBe(200);
+      expect((await call('PATCH', `/api/service-orders/${order.id}`, org, { technicianNotes: 'ok' })).statusCode).toBe(200);
+    });
+
+    it('frees the limit once payments are released, and counts PENDING and PAID alike', async () => {
+      const org = await organization('DueRelease'); const order = await serviceOrder(org, '100.00');
+      const first = (await pay(org, order.id, '60.00')).json().payment;
+      const second = (await pay(org, order.id, '30.00')).json().payment;
+      await call('PATCH', `/api/service-orders/${order.id}/payments/${second.id}/status`, org, { status: 'PAID' });
+      expect((await setFinal(org, order.id, '89.00')).statusCode).toBe(409);
+      await call('PATCH', `/api/service-orders/${order.id}/payments/${first.id}/status`, org, { status: 'CANCELLED' });
+      expect((await setFinal(org, order.id, '30.00')).statusCode).toBe(200);
+      expect((await setFinal(org, order.id, '29.99')).statusCode).toBe(409);
+      // Nenhum pagamento foi alterado ou apagado automaticamente.
+      expect((await db.payment.findMany({ where: { serviceOrderId: order.id }, orderBy: { amount: 'asc' } })).map((row) => `${row.amount}:${row.status}`)).toEqual(['30:PAID', '60:CANCELLED']);
+    });
+
+    it('refuses to remove the final value when that would leave the amount due undetermined or lower, but allows it without reserved payments', async () => {
+      const org = await organization('DueRemove');
+      const free = await serviceOrder(org, '100.00');
+      expect((await setFinal(org, free.id, null)).statusCode).toBe(200);
+
+      const noQuote = await serviceOrder(org, '100.00'); await pay(org, noQuote.id, '10.00');
+      expect((await setFinal(org, noQuote.id, null)).statusCode).toBe(409);
+      expect((await setFinal(org, noQuote.id, '0.00')).statusCode).toBe(409);
+
+      const withApproved = await serviceOrder(org, '100.00'); await quoteWithTotal(org, withApproved.id, '50.00'); await pay(org, withApproved.id, '60.00');
+      // Sem valor final, o devido cai para o orcamento aprovado (50) e os 60 reservados estourariam.
+      expect((await setFinal(org, withApproved.id, null)).statusCode).toBe(409);
+      expect((await dueRow(withApproved.id)).finalValue?.toString()).toBe('100');
+    });
+
+    it('guards quote item changes that lower the total of the approved quote being used as the amount due', async () => {
+      const org = await organization('DueItems'); const order = await serviceOrder(org);
+      await call('POST', `/api/service-orders/${order.id}/quote`, org, {});
+      const item = (await call('POST', `/api/service-orders/${order.id}/quote/items`, org, { description: 'A', quantity: '1', unitPrice: '100.00', type: 'LABOR' })).json().quote.items[0];
+      await decide(org, order.id, 'APPROVED');
+      await pay(org, order.id, '70.00');
+
+      const itemUrl = `/api/service-orders/${order.id}/quote/items/${item.id}`;
+      expect((await call('PATCH', itemUrl, org, { unitPrice: '69.99' })).statusCode).toBe(409);
+      expect((await call('DELETE', itemUrl, org)).statusCode).toBe(409);
+      expect((await call('PATCH', itemUrl, org, { quantity: '0.500' })).statusCode).toBe(409);
+      expect((await dueRow(order.id)).quote?.total.toString()).toBe('100');
+      expect((await dueRow(order.id)).quote?.items).toHaveLength(1);
+
+      expect((await call('PATCH', itemUrl, org, { unitPrice: '70.00' })).statusCode).toBe(200);
+      expect((await call('POST', `/api/service-orders/${order.id}/quote/items`, org, { description: 'B', quantity: '1', unitPrice: '5.00', type: 'PART' })).statusCode).toBe(201);
+      expect((await dueRow(order.id)).quote?.total.toString()).toBe('75');
+    });
+
+    it('does not restrict quote edits that do not feed the amount due (pending quote, or a final value in force)', async () => {
+      const org = await organization('DueIrrelevant');
+      const pending = await serviceOrder(org, '100.00'); await quoteWithTotal(org, pending.id, '100.00', false); await pay(org, pending.id, '90.00');
+      const item = (await dueRow(pending.id)).quote!.items[0]!;
+      expect((await call('DELETE', `/api/service-orders/${pending.id}/quote/items/${item.id}`, org)).statusCode).toBe(200);
+    });
+
+    it('applies the same protection to quote decisions and makes a decision final even when raced', async () => {
+      const org = await organization('DueDecision'); const order = await serviceOrder(org);
+      await quoteWithTotal(org, order.id, '100.00', false);
+      const responses = await Promise.all([decide(org, order.id, 'APPROVED'), decide(org, order.id, 'REJECTED'), decide(org, order.id, 'EXPIRED'), decide(org, order.id, 'APPROVED')]);
+      expect(responses.filter((response) => response.statusCode === 200)).toHaveLength(1);
+      expect(responses.filter((response) => response.statusCode === 409)).toHaveLength(3);
+      const winner = responses.find((response) => response.statusCode === 200)!.json().quote.status;
+      expect((await dueRow(order.id)).quote?.status).toBe(winner);
+
+      // Um orcamento decidido nunca volta atras: um APPROVED com pagamentos nao pode virar REJECTED/EXPIRED.
+      const approved = await serviceOrder(org); await quoteWithTotal(org, approved.id, '100.00'); await pay(org, approved.id, '50.00');
+      expect((await decide(org, approved.id, 'REJECTED')).statusCode).toBe(409);
+      expect((await decide(org, approved.id, 'EXPIRED')).statusCode).toBe(409);
+      expect((await dueRow(approved.id)).quote?.status).toBe('APPROVED');
+      expect((await pay(org, approved.id, '50.01')).statusCode).toBe(409);
+    });
+
+    it('never ends with more reserved than due when payments race with a reduction of the final value', async () => {
+      for (let round = 0; round < 3; round += 1) {
+        const org = await organization(`DueRace${round}`); const order = await serviceOrder(org, '100.00');
+        const responses = await Promise.all([setFinal(org, order.id, '40.00'), ...Array.from({ length: 6 }, () => pay(org, order.id, '30.00'))]);
+        const row = await dueRow(order.id);
+        const reserved = await reservedSum(order.id);
+        // Invariante final, lido do banco: o que esta reservado cabe no valor devido vigente.
+        expect(reserved.lte(row.finalValue!)).toBe(true);
+        const created = responses.slice(1).filter((response) => response.statusCode === 201).length;
+        expect(reserved.toString()).toBe(String(30 * created));
+        expect(responses.slice(1).every((response) => [201, 409].includes(response.statusCode))).toBe(true);
+        expect([200, 409]).toContain(responses[0]!.statusCode);
+        // A reducao so vence se ainda coube; senao o valor original permanece.
+        expect(row.finalValue!.toString()).toBe(responses[0]!.statusCode === 200 ? '40' : '100');
+      }
+    });
+
+    it('never ends with more reserved than due when payments race with item removals on the approved quote', async () => {
+      for (let round = 0; round < 3; round += 1) {
+        const org = await organization(`DueItemRace${round}`); const order = await serviceOrder(org);
+        await call('POST', `/api/service-orders/${order.id}/quote`, org, {});
+        for (const price of ['50.00', '50.00']) await call('POST', `/api/service-orders/${order.id}/quote/items`, org, { description: 'I', quantity: '1', unitPrice: price, type: 'PART' });
+        await decide(org, order.id, 'APPROVED');
+        const items = (await dueRow(order.id)).quote!.items;
+
+        await Promise.all([call('DELETE', `/api/service-orders/${order.id}/quote/items/${items[0]!.id}`, org), ...Array.from({ length: 4 }, () => pay(org, order.id, '50.00'))]);
+        const row = await dueRow(order.id);
+        expect((await reservedSum(order.id)).lte(row.quote!.total)).toBe(true);
+        expect(row.quote!.total.toString()).toBe(String(row.quote!.items.length * 50));
+      }
+    });
+
+    it('leaves no partial writes when the guard refuses or the transaction fails', async () => {
+      const org = await organization('DueAtomic'); const order = await serviceOrder(org);
+      await call('POST', `/api/service-orders/${order.id}/quote`, org, {});
+      const item = (await call('POST', `/api/service-orders/${order.id}/quote/items`, org, { description: 'A', quantity: '1', unitPrice: '100.00', type: 'LABOR' })).json().quote.items[0];
+      await decide(org, order.id, 'APPROVED'); await pay(org, order.id, '100.00');
+
+      // Recusa pela guarda: o item e o total voltam ao estado anterior (a escrita feita dentro da transacao e desfeita).
+      expect((await call('PATCH', `/api/service-orders/${order.id}/quote/items/${item.id}`, org, { unitPrice: '1.00' })).statusCode).toBe(409);
+      const after = await dueRow(order.id);
+      expect(after.quote?.items[0]?.unitPrice.toString()).toBe('100');
+      expect(after.quote?.total.toString()).toBe('100');
+
+      // Falha inesperada no meio da transacao do repositorio de OS: finalValue nao muda.
+      const failing = new PrismaServiceOrderRepository(new Proxy(db, {
+        get: (target, property) => property !== '$transaction' ? Reflect.get(target, property) : (callback: (client: Prisma.TransactionClient) => Promise<unknown>) => target.$transaction((client) => callback(new Proxy(client, {
+          get: (inner, name) => name !== 'serviceOrder' ? Reflect.get(inner, name) : new Proxy(inner.serviceOrder, { get: (delegate, operation) => operation === 'updateMany' ? () => { throw new Error('simulated failure'); } : (Reflect.get(delegate, operation) as (...args: unknown[]) => unknown).bind(delegate) }),
+        }))),
+      }) as PrismaClient);
+      await expect(failing.update(org.organizationId, order.id, { finalValue: '500.00' })).rejects.toThrow('simulated failure');
+      expect((await dueRow(order.id)).finalValue).toBeNull();
+    });
+
+    it('does not let another organization change the amount due, and leaks nothing', async () => {
+      const alpha = await organization('DueIsoA'); const beta = await organization('DueIsoB');
+      const order = await serviceOrder(alpha, '100.00'); await pay(alpha, order.id, '100.00');
+      const attempts = await Promise.all([setFinal(beta, order.id, '1.00'), decide(beta, order.id, 'REJECTED')]);
+      expect(attempts.map((response) => response.statusCode)).toEqual([404, 404]);
+      for (const response of attempts) expect(response.body).not.toMatch(/100|payment|amount due/i);
+      expect((await dueRow(order.id)).finalValue?.toString()).toBe('100');
     });
   });
 

@@ -1,4 +1,3 @@
-import { QuoteStatus } from '@prisma/client';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { PrismaClient } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
@@ -6,14 +5,15 @@ import { authenticate } from '../middlewares/authenticate.js';
 import { authorize, ensurePermission } from '../middlewares/authorize.js';
 import type { AuthRepository } from '../modules/auth/repository.js';
 import { quoteStatusPermission } from '../modules/auth/permissions.js';
-import { PrismaQuoteRepository, QuoteAlreadyExistsError, QuoteInUseError, QuoteNotFoundError, type QuoteRepository } from '../modules/quotes/repository.js';
+import { PrismaQuoteRepository, QuoteAlreadyExistsError, QuoteInUseError, QuoteNotFoundError, QuoteTransitionError, QUOTE_TRANSITIONS, type QuoteRepository } from '../modules/quotes/repository.js';
+import { DueValueBelowReservedError } from '../modules/shared/due-value.js';
 import { createQuoteSchema, createServiceItemSchema, updateQuoteSchema, updateQuoteStatusSchema, updateServiceItemSchema } from '../modules/quotes/schemas.js';
 
 type QuoteRoutesOptions = { authRepository?: AuthRepository; quoteRepository?: QuoteRepository; database?: PrismaClient };
 
 function notFound(reply: FastifyReply) { return reply.status(404).send({ statusCode: 404, error: 'Not Found', message: 'Quote not found' }); }
+function belowReserved(reply: FastifyReply) { return reply.status(409).send({ statusCode: 409, error: 'Conflict', message: 'The change would leave active payments above the amount due' }); }
 function serviceOrderNotFound(reply: FastifyReply) { return reply.status(404).send({ statusCode: 404, error: 'Not Found', message: 'Service order not found' }); }
-const transitions: Record<QuoteStatus, QuoteStatus[]> = { PENDING: [QuoteStatus.APPROVED, QuoteStatus.REJECTED, QuoteStatus.EXPIRED], APPROVED: [], REJECTED: [], EXPIRED: [] };
 
 export async function quoteRoutes(app: FastifyInstance, options: QuoteRoutesOptions = {}): Promise<void> {
   const repository = options.quoteRepository ?? new PrismaQuoteRepository(options.database ?? prisma);
@@ -59,8 +59,16 @@ export async function quoteRoutes(app: FastifyInstance, options: QuoteRoutesOpti
     const scope = await getScope(request, reply); if (!scope) return;
     const current = await repository.findByServiceOrder(scope.organizationId, scope.serviceOrderId);
     if (!current) return notFound(reply);
-    if (!transitions[current.status].includes(parsed.data.status)) return reply.status(409).send({ statusCode: 409, error: 'Conflict', message: 'Invalid quote status transition' });
-    return reply.send({ quote: await repository.updateStatus(scope.organizationId, scope.serviceOrderId, parsed.data.status) });
+    if (!QUOTE_TRANSITIONS[current.status].includes(parsed.data.status)) return reply.status(409).send({ statusCode: 409, error: 'Conflict', message: 'Invalid quote status transition' });
+    try {
+      const updated = await repository.updateStatus(scope.organizationId, scope.serviceOrderId, parsed.data.status);
+      if (!updated) return notFound(reply);
+      return reply.send({ quote: updated });
+    } catch (error) {
+      if (error instanceof QuoteTransitionError) return reply.status(409).send({ statusCode: 409, error: 'Conflict', message: 'Invalid quote status transition' });
+      if (error instanceof DueValueBelowReservedError) return belowReserved(reply);
+      throw error;
+    }
   });
 
   app.delete('/:serviceOrderId/quote', { preHandler: [requireAuthentication, authorize('quotes:delete')] }, async (request, reply) => {
@@ -73,21 +81,25 @@ export async function quoteRoutes(app: FastifyInstance, options: QuoteRoutesOpti
     const parsed = createServiceItemSchema.safeParse(request.body); if (!parsed.success) return reply.status(400).send({ statusCode: 400, error: 'Bad Request', message: 'Invalid service item data' });
     const scope = await getScope(request, reply); if (!scope) return;
     try { return reply.status(201).send({ quote: await repository.addItem(scope.organizationId, scope.serviceOrderId, parsed.data) }); }
-    catch (error) { if (error instanceof QuoteNotFoundError) return notFound(reply); throw error; }
+    catch (error) { if (error instanceof QuoteNotFoundError) return notFound(reply); if (error instanceof DueValueBelowReservedError) return belowReserved(reply); throw error; }
   });
 
   app.patch('/:serviceOrderId/quote/items/:itemId', { preHandler: [requireAuthentication, authorize('quotes:write')] }, async (request, reply) => {
     const parsed = updateServiceItemSchema.safeParse(request.body); if (!parsed.success) return reply.status(400).send({ statusCode: 400, error: 'Bad Request', message: 'Invalid service item data' });
     const scope = await getScope(request, reply); if (!scope) return;
-    const quote = await repository.updateItem(scope.organizationId, scope.serviceOrderId, (request.params as { itemId: string }).itemId, parsed.data);
-    if (!quote) return notFound(reply);
-    return reply.send({ quote });
+    try {
+      const quote = await repository.updateItem(scope.organizationId, scope.serviceOrderId, (request.params as { itemId: string }).itemId, parsed.data);
+      if (!quote) return notFound(reply);
+      return reply.send({ quote });
+    } catch (error) { if (error instanceof DueValueBelowReservedError) return belowReserved(reply); throw error; }
   });
 
   app.delete('/:serviceOrderId/quote/items/:itemId', { preHandler: [requireAuthentication, authorize('quotes:write')] }, async (request, reply) => {
     const scope = await getScope(request, reply); if (!scope) return;
-    const quote = await repository.deleteItem(scope.organizationId, scope.serviceOrderId, (request.params as { itemId: string }).itemId);
-    if (!quote) return notFound(reply);
-    return reply.send({ quote });
+    try {
+      const quote = await repository.deleteItem(scope.organizationId, scope.serviceOrderId, (request.params as { itemId: string }).itemId);
+      if (!quote) return notFound(reply);
+      return reply.send({ quote });
+    } catch (error) { if (error instanceof DueValueBelowReservedError) return belowReserved(reply); throw error; }
   });
 }

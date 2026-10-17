@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { ApiError } from '../../services/api';
+import { clearAllPendingPayments } from '../../utils/pendingPayment';
 import type { Diagnosis, ServiceOrder } from '../../types/service-order';
 
 const serviceOrderServiceMock = vi.hoisted(() => ({ get: vi.fn(), updateStatus: vi.fn(), remove: vi.fn(), getDiagnosis: vi.fn(), createDiagnosis: vi.fn(), updateDiagnosis: vi.fn(), removeDiagnosis: vi.fn(), generateMessage: vi.fn(), getMessageHistory: vi.fn(), recordMessage: vi.fn() }));
@@ -48,6 +49,8 @@ async function openDiagnosisForm(label: 'Adicionar diagnóstico' | 'Editar diagn
 
 describe('ServiceOrderDetails', () => {
   beforeEach(() => {
+    clearAllPendingPayments();
+    window.sessionStorage.clear();
     authMock.denied.clear();
     vi.clearAllMocks();
     serviceOrderServiceMock.get.mockResolvedValue({ serviceOrder: order });
@@ -254,46 +257,135 @@ describe('ServiceOrderDetails', () => {
 
   describe('registro de pagamento (Idempotency-Key)', () => {
     const created = (id: string, amount: string) => ({ payment: { id, serviceOrderId: 'order-1', amount, method: 'PIX', status: 'PENDING', createdAt: '2026-10-15T10:00:00.000Z', updatedAt: '2026-10-15T10:00:00.000Z' } });
-    const openForm = async () => { fireEvent.click(await screen.findByRole('button', { name: /Registrar pagamento/ })); return screen.getByPlaceholderText('Valor'); };
+    const storageKey = 'serviceflow:pending-payment:order-1';
+    const networkFailure = () => new TypeError('Failed to fetch');
+    const openForm = async () => { fireEvent.click(await screen.findByRole('button', { name: /Registrar pagamento/ })); return screen.getByPlaceholderText('Valor') as HTMLInputElement; };
     const submit = () => fireEvent.click(screen.getByRole('button', { name: 'Registrar' }));
+    const idle = () => waitFor(() => expect((screen.getByRole('button', { name: 'Registrar' }) as HTMLButtonElement).disabled).toBe(false));
+    const calls = () => paymentsServiceMock.create.mock.calls.length;
     const keys = () => paymentsServiceMock.create.mock.calls.map((call) => call[2] as string);
 
-    it('sends an Idempotency-Key and reuses it when the same operation is retried after a failure', async () => {
-      paymentsServiceMock.create.mockRejectedValueOnce(new ApiError('network', 500)).mockResolvedValueOnce(created('payment-1', '50.00'));
+    beforeEach(() => { vi.spyOn(window, 'confirm').mockReturnValue(true); });
+
+    it('keeps the same key when a network failure is followed by a retry, and never generates another one on its own', async () => {
+      paymentsServiceMock.create.mockRejectedValueOnce(networkFailure()).mockResolvedValueOnce(created('payment-1', '50.00'));
       renderPage();
       fireEvent.change(await openForm(), { target: { value: '50' } });
 
       submit();
-      await waitFor(() => expect(paymentsServiceMock.create).toHaveBeenCalledTimes(1));
-      await waitFor(() => expect((screen.getByRole('button', { name: 'Registrar' }) as HTMLButtonElement).disabled).toBe(false));
+      await waitFor(() => expect(calls()).toBe(1));
+      await screen.findByText(/Não foi possível confirmar se o pagamento foi registrado/);
+      await idle();
+      expect(calls()).toBe(1);
       submit();
-      await waitFor(() => expect(paymentsServiceMock.create).toHaveBeenCalledTimes(2));
+      await screen.findByText('Pagamento registrado.');
 
       expect(paymentsServiceMock.create).toHaveBeenCalledWith('order-1', { amount: '50', method: 'PIX' }, expect.any(String));
-      expect(keys()[0]).toBeTruthy();
       expect(keys()[1]).toBe(keys()[0]);
     });
 
-    it('uses a new key when the content changes and a new one for the next payment after success', async () => {
-      paymentsServiceMock.create.mockRejectedValueOnce(new ApiError('Payment amount exceeds the outstanding balance', 409)).mockResolvedValueOnce(created('payment-1', '30.00')).mockResolvedValueOnce(created('payment-2', '30.00'));
+    it('treats timeouts and server errors as unknown outcomes that keep the operation, while 4xx refusals end it', async () => {
+      paymentsServiceMock.create.mockRejectedValueOnce(new ApiError('timeout', 408)).mockRejectedValueOnce(new ApiError('boom', 503)).mockRejectedValueOnce(new ApiError('Payment amount exceeds the outstanding balance', 409)).mockResolvedValueOnce(created('payment-1', '50.00'));
       renderPage();
-      const amount = await openForm();
-      fireEvent.change(amount, { target: { value: '500' } });
+      fireEvent.change(await openForm(), { target: { value: '50' } });
+      for (let attempt = 1; attempt <= 3; attempt += 1) { submit(); await waitFor(() => expect(calls()).toBe(attempt)); await idle(); }
+      // 408 e 503 mantiveram a chave; o 409 (recusa definitiva) a encerrou.
+      expect(keys()[1]).toBe(keys()[0]);
+      expect(keys()[2]).toBe(keys()[0]);
+      expect(window.sessionStorage.getItem(storageKey)).toBeNull();
       submit();
-      await waitFor(() => expect(paymentsServiceMock.create).toHaveBeenCalledTimes(1));
-      await waitFor(() => expect((screen.getByRole('button', { name: 'Registrar' }) as HTMLButtonElement).disabled).toBe(false));
-
-      fireEvent.change(screen.getByPlaceholderText('Valor'), { target: { value: '30' } });
-      submit();
-      await waitFor(() => expect(paymentsServiceMock.create).toHaveBeenCalledTimes(2));
       await screen.findByText('Pagamento registrado.');
+      expect(keys()[3]).not.toBe(keys()[0]);
+    });
 
+    it('keeps the pending operation when the form is closed and reopened, prefilled, and blocks a different payment meanwhile', async () => {
+      paymentsServiceMock.create.mockRejectedValueOnce(networkFailure()).mockResolvedValueOnce(created('payment-1', '50.00'));
+      renderPage();
+      fireEvent.change(await openForm(), { target: { value: '50' } });
+      submit();
+      await waitFor(() => expect(calls()).toBe(1));
+      await idle();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Cancelar' }));
+      const reopened = await openForm();
+      expect(reopened.value).toBe('50');
+      expect(screen.getByRole('alert').textContent).toMatch(/não teve o resultado confirmado/);
+
+      // Outro valor enquanto há uma operação de resultado desconhecido: bloqueado, sem nova chamada.
+      fireEvent.change(reopened, { target: { value: '70' } });
+      submit();
+      await screen.findByText(/Há um pagamento anterior sem resultado confirmado/);
+      expect(calls()).toBe(1);
+
+      fireEvent.change(screen.getByPlaceholderText('Valor'), { target: { value: '50' } });
+      submit();
+      await screen.findByText('Pagamento registrado.');
+      expect(keys()[1]).toBe(keys()[0]);
+      expect(screen.queryByRole('alert')).toBeNull();
+    });
+
+    it('survives leaving and reloading the page: the stored operation is offered again with the same key', async () => {
+      paymentsServiceMock.create.mockRejectedValueOnce(networkFailure()).mockResolvedValueOnce(created('payment-1', '50.00'));
+      const first = renderPage();
+      fireEvent.change(await openForm(), { target: { value: '50' } });
+      submit();
+      await waitFor(() => expect(calls()).toBe(1));
+      const stored = JSON.parse(window.sessionStorage.getItem(storageKey) ?? 'null');
+      expect(stored).toMatchObject({ key: keys()[0], amount: '50', method: 'PIX' });
+      expect(Object.keys(stored).sort()).toEqual(['amount', 'createdAt', 'key', 'method']);
+      first.unmount();
+
+      renderPage();
+      expect((await screen.findByRole('alert')).textContent).toMatch(/não teve o resultado confirmado/);
+      fireEvent.click(screen.getByRole('button', { name: 'Tentar novamente' }));
+      await screen.findByText('Pagamento registrado.');
+      expect(keys()[1]).toBe(keys()[0]);
+      expect(window.sessionStorage.getItem(storageKey)).toBeNull();
+    });
+
+    it('uses a new key for the next payment once the previous one is confirmed', async () => {
+      paymentsServiceMock.create.mockResolvedValueOnce(created('payment-1', '30.00')).mockResolvedValueOnce(created('payment-2', '30.00'));
+      renderPage();
       fireEvent.change(await openForm(), { target: { value: '30' } });
       submit();
-      await waitFor(() => expect(paymentsServiceMock.create).toHaveBeenCalledTimes(3));
+      await screen.findByText('Pagamento registrado.');
+      fireEvent.change(await openForm(), { target: { value: '30' } });
+      expect((screen.getByPlaceholderText('Valor') as HTMLInputElement).value).toBe('30');
+      submit();
+      await waitFor(() => expect(calls()).toBe(2));
+      expect(keys()[1]).not.toBe(keys()[0]);
+    });
 
-      const [first, second, third] = keys();
-      expect(new Set([first, second, third]).size).toBe(3);
+    it('lets the user explicitly discard an unconfirmed operation, after which a new key is used', async () => {
+      paymentsServiceMock.create.mockRejectedValueOnce(networkFailure()).mockResolvedValueOnce(created('payment-1', '70.00'));
+      renderPage();
+      fireEvent.change(await openForm(), { target: { value: '50' } });
+      submit();
+      await waitFor(() => expect(calls()).toBe(1));
+      await idle();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Descartar' }));
+      expect(window.confirm).toHaveBeenCalled();
+      await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
+      expect(window.sessionStorage.getItem(storageKey)).toBeNull();
+
+      fireEvent.change(screen.getByPlaceholderText('Valor'), { target: { value: '70' } });
+      submit();
+      await screen.findByText('Pagamento registrado.');
+      expect(keys()[1]).not.toBe(keys()[0]);
+    });
+
+    it('keeps the operation when discarding is declined', async () => {
+      vi.spyOn(window, 'confirm').mockReturnValue(false);
+      paymentsServiceMock.create.mockRejectedValueOnce(networkFailure());
+      renderPage();
+      fireEvent.change(await openForm(), { target: { value: '50' } });
+      submit();
+      await waitFor(() => expect(calls()).toBe(1));
+      await idle();
+      fireEvent.click(screen.getByRole('button', { name: 'Descartar' }));
+      expect(screen.getByRole('alert')).toBeTruthy();
+      expect(window.sessionStorage.getItem(storageKey)).not.toBeNull();
     });
   });
 

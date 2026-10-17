@@ -1,3 +1,4 @@
+import { clearAllPendingPayments } from '../utils/pendingPayment';
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { useLocation } from 'react-router-dom';
 import { api } from '../services/api';
@@ -63,6 +64,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       await api.post<void>('/api/auth/logout');
     } finally {
+      clearAllPendingPayments();
       setUser(null);
     }
   };

@@ -1,3 +1,4 @@
+import { DueValueBelowReservedError } from '../modules/shared/due-value.js';
 import { ServiceOrderStatus } from '@prisma/client';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { PrismaClient } from '@prisma/client';
@@ -87,9 +88,14 @@ export async function serviceOrderRoutes(app: FastifyInstance, options: ServiceO
     const equipmentId = parsed.data.equipmentId ?? current.equipmentId;
     if (!(await repository.referencesBelongToOrganization(request.user.organizationId, customerId, equipmentId))) return invalidReferences(reply);
 
-    const serviceOrder = await repository.update(request.user.organizationId, current.id, parsed.data);
-    if (!serviceOrder) return notFound(reply);
-    return reply.send({ serviceOrder });
+    try {
+      const serviceOrder = await repository.update(request.user.organizationId, current.id, parsed.data);
+      if (!serviceOrder) return notFound(reply);
+      return reply.send({ serviceOrder });
+    } catch (error) {
+      if (error instanceof DueValueBelowReservedError) return reply.status(409).send({ statusCode: 409, error: 'Conflict', message: 'The change would leave active payments above the amount due' });
+      throw error;
+    }
   });
 
   app.delete('/:id', { preHandler: [requireAuthentication, authorize('serviceOrders:delete')] }, async (request, reply) => {
