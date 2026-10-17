@@ -29,11 +29,16 @@ import { healthRoutes } from './routes/health.js';
 import { overviewRoutes } from './routes/overview.js';
 import type { OverviewRepository } from './modules/overview/repository.js';
 import type { TeamRepository } from './modules/team/repository.js';
+import type { Writable } from 'node:stream';
+import { OutboxMailer, createMailer, type Mailer } from './modules/mail/mailer.js';
+import { PrismaPasswordResetRepository } from './modules/password-reset/repository.js';
+import { PasswordRecoveryService } from './modules/password-reset/service.js';
+import { passwordResetRoutes } from './routes/password-reset.js';
 import { invitationRoutes, teamRoutes } from './routes/team.js';
 
-export function buildApp(options: { authRepository?: AuthRepository; customerRepository?: CustomerRepository; equipmentRepository?: EquipmentRepository; serviceOrderRepository?: ServiceOrderRepository; diagnosisRepository?: DiagnosisRepository; quoteRepository?: QuoteRepository; paymentRepository?: PaymentRepository; warrantyRepository?: WarrantyRepository; dashboardRepository?: DashboardRepository; messageRepository?: MessageRepository; overviewRepository?: OverviewRepository; teamRepository?: TeamRepository } = {}) {
+export function buildApp(options: { authRepository?: AuthRepository; customerRepository?: CustomerRepository; equipmentRepository?: EquipmentRepository; serviceOrderRepository?: ServiceOrderRepository; diagnosisRepository?: DiagnosisRepository; quoteRepository?: QuoteRepository; paymentRepository?: PaymentRepository; warrantyRepository?: WarrantyRepository; dashboardRepository?: DashboardRepository; messageRepository?: MessageRepository; overviewRepository?: OverviewRepository; teamRepository?: TeamRepository; mailer?: Mailer; passwordRecovery?: PasswordRecoveryService; /** Apenas testes: captura os logs para verificar que nada sensivel e registrado. */ loggerStream?: Writable } = {}) {
   const app = Fastify({
-    logger: env.NODE_ENV !== 'test',
+    logger: options.loggerStream ? { level: 'trace', stream: options.loggerStream } : env.NODE_ENV !== 'test',
     // Atras de um proxy reverso (nginx, plataformas de deploy) o IP real do
     // cliente chega em X-Forwarded-For. Sem trustProxy o rate limit usaria o
     // IP do proxy, compartilhando o limite entre todos os clientes.
@@ -83,6 +88,19 @@ export function buildApp(options: { authRepository?: AuthRepository; customerRep
   registerSecurityPlugins(app);
   app.register(healthRoutes, { prefix: '/api' });
   app.register(authRoutes, { prefix: '/api/auth', repository: authRepository });
+  const mailer = options.mailer ?? createMailer(env);
+  const passwordRecovery = options.passwordRecovery ?? new PasswordRecoveryService({
+    repository: new PrismaPasswordResetRepository(prisma),
+    mailer,
+    appBaseUrl: env.APP_BASE_URL ?? env.CORS_ORIGIN.split(',')[0]?.trim() ?? 'http://localhost:3000',
+  });
+  app.addHook('onReady', async () => {
+    if (env.NODE_ENV === 'production' && !mailer.enabled) app.log.warn('MAIL_PROVIDER is not configured: password recovery e-mails will not be sent');
+  });
+  app.addHook('onClose', async () => { await passwordRecovery.idle(); });
+  app.register(passwordResetRoutes, { prefix: '/api/auth/password', service: passwordRecovery });
+  // Somente desenvolvimento (o ambiente recusa MAIL_PROVIDER=outbox em producao): permite ver o link sem enviar e-mail.
+  if (mailer instanceof OutboxMailer && env.NODE_ENV !== 'production') app.get('/api/dev/mail-outbox', async () => ({ messages: mailer.messages }));
   app.register(invitationRoutes, { prefix: '/api/auth/invitations', teamRepository: options.teamRepository });
   app.register(teamRoutes, { prefix: '/api/team', authRepository, teamRepository: options.teamRepository });
   app.register(customerRoutes, {

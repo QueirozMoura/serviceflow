@@ -24,6 +24,13 @@ const envSchema = z
       .or(z.coerce.number().int().min(0))
       .default('false')
       .transform((value) => (value === 'true' ? true : value === 'false' ? false : String(value))),
+    // E-mail transacional (recuperacao de senha). Sem MAIL_PROVIDER nada e enviado e a recuperacao fica inoperante.
+    // resend = API HTTP do Resend (exige RESEND_API_KEY e MAIL_FROM); outbox = memoria, SO fora de producao (desenvolvimento).
+    MAIL_PROVIDER: z.enum(['resend', 'outbox']).optional(),
+    RESEND_API_KEY: z.string().min(1).optional(),
+    MAIL_FROM: z.string().min(3).optional(),
+    // Origem publica do frontend usada nos links enviados por e-mail. Padrao: a primeira CORS_ORIGIN.
+    APP_BASE_URL: z.string().url().optional(),
     GOOGLE_CLIENT_ID: z.string().min(1).optional(),
     GOOGLE_CLIENT_SECRET: z.string().min(1).optional(),
     // URL publica do callback registrada no Google Cloud Console.
@@ -52,6 +59,16 @@ const envSchema = z
         path: ['AUTH_COOKIE_SAME_SITE'],
         message: "AUTH_COOKIE_SAME_SITE 'none' is only allowed in production (requires HTTPS/Secure)",
       });
+    }
+
+    if (value.MAIL_PROVIDER === 'resend') {
+      for (const key of ['RESEND_API_KEY', 'MAIL_FROM'] as const) {
+        if (!value[key]) context.addIssue({ code: z.ZodIssueCode.custom, path: [key], message: `${key} is required when MAIL_PROVIDER is resend` });
+      }
+    }
+    // O outbox guarda as mensagens (com os links) em memoria e as expoe em uma rota de desenvolvimento: nunca em producao.
+    if (value.MAIL_PROVIDER === 'outbox' && value.NODE_ENV === 'production') {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ['MAIL_PROVIDER'], message: "MAIL_PROVIDER 'outbox' is not allowed in production" });
     }
 
     if (value.NODE_ENV !== 'production') return;

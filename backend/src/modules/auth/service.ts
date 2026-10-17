@@ -61,14 +61,22 @@ export async function registerAccount(repository: AuthRepository, input: Registe
   }
 }
 
+// Hash bcrypt (custo 12) de um valor aleatorio descartado. Serve so para gastar o mesmo tempo de uma verificacao real
+// quando nao ha senha a verificar (e-mail inexistente ou conta so Google); nao corresponde a nenhuma senha de usuario.
+const TIMING_DUMMY_HASH = '$2b$12$4sUFwUwMG0qWV6gHWU/crOXhJfKEAydzZGDvzX4feY51yxY8Mc5Za';
+
 export async function authenticateAccount(repository: AuthRepository, input: LoginInput): Promise<AuthUserRecord | null> {
   const users = await repository.findUsersByEmail(input.email);
+  // Sempre ha ao menos uma comparacao bcrypt e uma por conta, tenha a conta senha ou nao: o tempo de resposta nao
+  // distingue e-mail inexistente, conta so Google e conta com senha errada.
+  const candidates: Array<AuthUserRecord | null> = users.length > 0 ? users : [null];
   const matches = await Promise.all(
-    users.map(async (user) => ({
-      user,
+    candidates.map(async (user) => {
+      const hash = user?.passwordHash ?? TIMING_DUMMY_HASH;
+      const valid = await bcrypt.compare(input.password, hash);
       // Usuarios criados via Google nao possuem senha e nao podem autenticar por email/senha.
-      matches: user.passwordHash !== null && (await bcrypt.compare(input.password, user.passwordHash)),
-    })),
+      return { user, matches: valid && user !== null && user.passwordHash !== null };
+    }),
   );
   return matches.find((candidate) => candidate.matches)?.user ?? null;
 }

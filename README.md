@@ -65,7 +65,7 @@ Tudo o que está listado abaixo está implementado no código e, com exceção d
 
 | Área | O que o sistema faz |
 | --- | --- |
-| **Acesso** | Login por e-mail e senha, login com Google (OAuth 2.0), sessão por cookie HttpOnly, logout, edição do próprio perfil e cadastro público de uma nova empresa (cria a organização e o proprietário). |
+| **Acesso** | Login por e-mail e senha, login com Google (OAuth 2.0), sessão por cookie HttpOnly, logout, edição do próprio perfil, cadastro público de uma nova empresa (cria a organização e o proprietário) e **recuperação de senha por e-mail** (exige um provedor de e-mail configurado). |
 | **Equipe** | O proprietário convida administradores e técnicos por link (gerado no aplicativo, sem envio de e-mail), consulta membros e convites pendentes e revoga convites. |
 | **Clientes e equipamentos** | CRUD com busca, filtros e paginação no servidor. Equipamentos pertencem a um cliente. |
 | **Ordens de serviço** | Abertura vinculada a cliente e equipamento, número legível no formato `OS-AAAAMMDD-XXXXXXXX`, valores estimado e final, máquina de estados com histórico (quem mudou, de qual para qual status e quando). |
@@ -260,6 +260,9 @@ Os valores abaixo são placeholders. **Nunca versione o `.env`** (ele já está 
 | `AUTH_COOKIE_NAME` | não | `serviceflow_session` | Nome do cookie de sessão |
 | `AUTH_COOKIE_SAME_SITE` | não | `lax` | `lax`, `strict` ou `none` (`none` só é aceito em produção, com HTTPS) |
 | `TRUST_PROXY` | não | `false` | `true`, `false` ou o número de proxies reversos confiáveis, para obter o IP real |
+| `MAIL_PROVIDER` | não | — | `resend` (envio real pela API do Resend) ou `outbox` (memória, **somente fora de produção**). Sem ele, nenhum e-mail é enviado e a recuperação de senha fica inoperante |
+| `RESEND_API_KEY`, `MAIL_FROM` | com `resend` | — | Chave da API e remetente (ex.: `ServiceFlow <no-reply@seudominio.com>`, de um domínio verificado no Resend) |
+| `APP_BASE_URL` | não | primeira `CORS_ORIGIN` | Origem do frontend usada nos links dos e-mails |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`, `OAUTH_SUCCESS_REDIRECT` | não | — | Habilitam o login com Google. Em produção, se uma for definida, todas devem ser |
 | `OAUTH_FAILURE_REDIRECT` | não | primeira `CORS_ORIGIN` | Para onde o navegador volta quando o login com Google falha |
 
@@ -372,6 +375,7 @@ Como os testes tratam o banco:
 - **Senhas** com `bcrypt` (custo 12). Regra de senha nova: 8 a 128 caracteres, com letra minúscula, maiúscula e número.
 - **Rate limit** por IP (global e mais estrito em login, cadastro e convites), Helmet e CORS restrito às origens configuradas.
 - **Login com Google (OAuth 2.0)** com parâmetro `state`, validação do `id_token` (assinatura via JWKS, emissor, público e `email_verified`). Uma identidade Google **nunca é vinculada por correspondência de e-mail** a uma conta já existente: o acesso é recusado, evitando tomada de conta.
+- **Recuperação de senha** (`/api/auth/password/*`): token de 256 bits (só o hash é guardado), validade de 30 minutos e uso único, enviado por e-mail com o token no fragmento do link. A resposta pública é idêntica exista a conta ou não, e o envio acontece depois dela. Ao trocar a senha, todas as sessões da conta são revogadas e nenhuma sessão nova é criada. Contas só Google (sem senha local) nunca recebem senha por este fluxo. Há limite de taxa por rota e intervalo mínimo de 1 minuto entre e-mails da mesma conta. No login, o tempo de resposta não distingue e-mail inexistente, conta só Google e senha errada.
 - **Convites** de equipe: token de 256 bits (somente o hash é guardado), validade de 7 dias, uso único, revogável; o papel e a organização vêm do convite, nunca do destinatário.
 
 ### Papéis e permissões
@@ -411,6 +415,7 @@ Todas as rotas ficam sob `/api`. Exceto as públicas indicadas, exigem sessão v
 | --- | --- |
 | `GET /api/health` | Verificação de saúde da API e do banco (pública) |
 | `/api/auth` | `register`, `login`, `logout`, `session`, `me` (leitura e edição do nome), `google` e `google/callback` |
+| `/api/auth/password` | `forgot`, `validate` e `reset`: recuperação de senha (públicas, com limite de taxa) |
 | `/api/auth/invitations` | `inspect` e `accept`: consulta e aceite de convite (públicas, com rate limit) |
 | `/api/team` | `members`, `invitations` (listar, criar, revogar) |
 | `/api/customers` · `/api/equipment` | CRUD, `options` para seletores, busca e paginação |
@@ -436,8 +441,9 @@ Para produção, atente-se a:
 
 ## Limitações conhecidas
 
-- **E-mail não verificado.** O cadastro por e-mail e senha não confirma a posse do e-mail, e **não há recuperação de senha**.
-- **Nenhum e-mail ou mensagem é enviado.** Convites são links copiados e entregues manualmente; as mensagens de comunicação são apenas rascunhos registrados.
+- **E-mail não verificado.** O cadastro por e-mail e senha não confirma a posse do e-mail.
+- **A recuperação de senha só funciona com um provedor de e-mail configurado** (`MAIL_PROVIDER=resend`, `RESEND_API_KEY` e `MAIL_FROM` válidos). A integração com o Resend foi testada com respostas simuladas, não com uma conta real. Sem configuração, o pedido responde normalmente, mas nenhum e-mail é enviado.
+- **Fora a recuperação de senha, nenhum e-mail ou mensagem é enviado.** Convites são links copiados e entregues manualmente; as mensagens de comunicação são apenas rascunhos registrados.
 - **Equipe:** ainda não é possível remover membros nem trocar o papel de um membro. Um mesmo e-mail pode existir em equipes diferentes e o login distingue as contas pela senha (não há seletor de organização).
 - **Ordem sem orçamento** pode ser aprovada diretamente (a exigência de orçamento aprovado vale quando existe orçamento).
 - **Orçamento aprovado** continua editável por proprietário e administrador, desde que não deixe pagamentos ativos acima do valor devido.
@@ -450,7 +456,7 @@ Para produção, atente-se a:
 
 Itens ainda **não implementados** e considerados para as próximas etapas:
 
-- Recuperação de senha e verificação de e-mail.
+- Verificação de e-mail.
 - Remoção de membros e troca de papéis.
 - Trilha de auditoria de alterações financeiras e observabilidade (identificador de requisição, rastreio de erros).
 - Pipeline de CI (testes, tipos, lint e build) e fixação de versões das dependências.

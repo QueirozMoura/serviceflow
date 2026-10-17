@@ -15,6 +15,8 @@ import { PaymentsPage, QuotesPage, WarrantiesPage } from '../pages/financial/Mod
 import { Profile } from '../pages/profile/Profile';
 import { Signup } from '../pages/auth/Signup';
 import { AcceptInvite } from '../pages/auth/AcceptInvite';
+import { ForgotPassword } from '../pages/auth/ForgotPassword';
+import { ResetPassword } from '../pages/auth/ResetPassword';
 import { Team } from '../pages/team/Team';
 import { Demo } from '../pages/demo/Demo';
 import { ProtectedRoute, PublicRoute, RequirePermission } from './ProtectedRoute';
@@ -22,9 +24,10 @@ import { ProtectedRoute, PublicRoute, RequirePermission } from './ProtectedRoute
 export function AppRoutes() {
   return (
     <Routes>
-      <Route element={<PublicRoute />}><Route path="/" element={<Demo />} /><Route path="/login" element={<Login />} /><Route path="/signup" element={<Signup />} /></Route>
+      <Route element={<PublicRoute />}><Route path="/" element={<Demo />} /><Route path="/login" element={<Login />} /><Route path="/signup" element={<Signup />} /><Route path="/forgot-password" element={<ForgotPassword />} /></Route>
       {/* Fora de PublicRoute: quem já está logado vê um aviso em vez de ser redirecionado e perder o link do convite. */}
       <Route path="/invite" element={<AcceptInvite />} />
+      <Route path="/reset-password" element={<ResetPassword />} />
       <Route element={<ProtectedRoute />}><Route element={<AppLayout />}><Route path="/dashboard" element={<Dashboard />} /></Route></Route>
       <Route element={<ProtectedRoute />}><Route element={<AppLayout />}>
         <Route path="/customers" element={<CustomerList />} />

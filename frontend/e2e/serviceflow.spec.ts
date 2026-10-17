@@ -460,3 +460,60 @@ test('signs up by email, invites a technician through a link, and the invite wor
   await expect(page.getByRole('row', { name: new RegExp(`Tecnico Convidado ${invitee}`) })).toBeVisible();
   await expect(page.getByText('Nenhum convite pendente.')).toBeVisible();
 });
+
+test('recovers a forgotten password by e-mail link: old password and sessions stop working, the link works once', async ({ page, browser, request }) => {
+  const account = createAccount();
+  await registerAccount(request, account);
+
+  // Sessao aberta em outro navegador: precisa cair apos a troca de senha.
+  const other = await browser.newContext();
+  const otherPage = await other.newPage();
+  await otherPage.goto('/login');
+  await otherPage.getByLabel('Email').fill(account.email);
+  await otherPage.getByLabel('Senha').fill(account.password);
+  await otherPage.getByRole('button', { name: /^Entrar/ }).click();
+  await expect(otherPage).toHaveURL(/\/dashboard$/);
+
+  await page.goto('/login');
+  await page.getByRole('link', { name: 'Esqueci minha senha' }).click();
+  await expect(page).toHaveURL(/\/forgot-password$/);
+  await page.getByLabel('Email').fill(account.email);
+  await page.getByRole('button', { name: /Enviar instruções/ }).click();
+  await expect(page.getByText(/Se existir uma conta com este email/)).toBeVisible();
+
+  // O "e-mail" chega na caixa de saida de desenvolvimento (o envio real so existe com um provedor configurado).
+  let link = '';
+  await expect.poll(async () => {
+    const outbox = (await (await request.get('http://127.0.0.1:3333/api/dev/mail-outbox')).json()) as { messages: Array<{ to: string; text: string }> };
+    link = /(https?:\/\/\S+\/reset-password#t=[A-Za-z0-9_-]+)/.exec(outbox.messages.find((message) => message.to === account.email)?.text ?? '')?.[1] ?? '';
+    return link;
+  }).not.toBe('');
+
+  const newPassword = 'BrandNewPass9';
+  await page.goto(link);
+  await page.getByLabel('Nova senha', { exact: true }).fill(newPassword);
+  await page.getByLabel('Confirmar nova senha').fill(newPassword);
+  await page.getByRole('button', { name: 'Redefinir senha' }).click();
+  await expect(page.getByText(/Senha alterada com sucesso/)).toBeVisible();
+  await expect(page).not.toHaveURL(/dashboard/);
+
+  // A sessao antiga caiu; a senha antiga nao entra; a nova entra.
+  await otherPage.reload();
+  await expect(otherPage).toHaveURL(/\/login/);
+  await other.close();
+  await page.goto('/login');
+  await page.getByLabel('Email').fill(account.email);
+  await page.getByLabel('Senha').fill(account.password);
+  await page.getByRole('button', { name: /^Entrar/ }).click();
+  await expect(page.getByText('Email ou senha inválidos.')).toBeVisible();
+  await page.getByLabel('Senha').fill(newPassword);
+  await page.getByRole('button', { name: /^Entrar/ }).click();
+  await expect(page).toHaveURL(/\/dashboard$/);
+
+  // O mesmo link nao funciona uma segunda vez.
+  const again = await browser.newContext();
+  const againPage = await again.newPage();
+  await againPage.goto(link);
+  await expect(againPage.getByText(/não é válido ou expirou/)).toBeVisible();
+  await again.close();
+});

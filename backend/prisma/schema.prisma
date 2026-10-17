@@ -75,20 +75,21 @@ model Organization {
 }
 
 model User {
-  id                 String                      @id @default(uuid())
-  organizationId     String
-  name               String
-  email              String
-  passwordHash       String?
-  role               UserRole
-  createdAt          DateTime                    @default(now())
-  updatedAt          DateTime                    @updatedAt
-  organization       Organization                @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  statusChanges      ServiceOrderStatusHistory[]
-  sessions           Session[]
-  oauthAccounts      OAuthAccount[]
-  messages           Message[]
-  invitationsCreated Invitation[]
+  id                  String                      @id @default(uuid())
+  organizationId      String
+  name                String
+  email               String
+  passwordHash        String?
+  role                UserRole
+  createdAt           DateTime                    @default(now())
+  updatedAt           DateTime                    @updatedAt
+  organization        Organization                @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  statusChanges       ServiceOrderStatusHistory[]
+  sessions            Session[]
+  oauthAccounts       OAuthAccount[]
+  messages            Message[]
+  invitationsCreated  Invitation[]
+  passwordResetTokens PasswordResetToken[]
 
   @@unique([organizationId, email])
   @@unique([id, organizationId])
@@ -363,4 +364,19 @@ model Invitation {
 
   @@index([organizationId, email])
   @@index([organizationId, createdAt])
+}
+
+// Token de recuperacao de senha: 256 bits aleatorios, so o hash fica aqui. Uso unico (usedAt) e validade curta (expiresAt).
+// Pertence a UMA linha de User (usuario + organizacao): trocar a senha de uma conta nunca toca em outra com o mesmo e-mail.
+model PasswordResetToken {
+  id             String    @id @default(uuid())
+  userId         String
+  organizationId String
+  tokenHash      String    @unique
+  expiresAt      DateTime
+  usedAt         DateTime?
+  createdAt      DateTime  @default(now())
+  user           User      @relation(fields: [userId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([userId, organizationId, createdAt])
 }

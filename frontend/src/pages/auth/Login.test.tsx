@@ -13,6 +13,12 @@ const renderLogin = (search = '') => render(<MemoryRouter initialEntries={[`/log
 describe('Login', () => {
   beforeEach(() => { vi.clearAllMocks(); });
 
+  it('offers the password recovery and sign-up entry points', () => {
+    renderLogin();
+    expect(screen.getByRole('link', { name: 'Esqueci minha senha' }).getAttribute('href')).toBe('/forgot-password');
+    expect(screen.getByRole('link', { name: 'Criar conta' }).getAttribute('href')).toBe('/signup');
+  });
+
   it('shows no error on a clean visit', () => {
     renderLogin();
     expect(screen.queryByText(/Google/, { selector: '.form-error' })).toBeNull();

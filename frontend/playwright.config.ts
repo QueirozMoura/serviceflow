@@ -36,6 +36,8 @@ export default defineConfig({
         RATE_LIMIT_MAX: '1000',
         // Cadastro/login/convites tambem partilham o IP da suite (padrao: 5 por minuto).
         AUTH_RATE_LIMIT_MAX: '1000',
+        // E-mails de recuperacao ficam numa caixa de saida em memoria (rota de desenvolvimento): nada e enviado de verdade.
+        MAIL_PROVIDER: 'outbox',
       },
     },
     {
